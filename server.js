@@ -1,4 +1,9 @@
 const os = require('os');
+// Set Playwright path for Render production environment
+if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
+}
+
 if (!process.env.HOME) {
   process.env.HOME = os.homedir();
 }
