@@ -629,14 +629,41 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    console.log("Navigating to Naukri.com...");
-    await page.goto("https://www.naukri.com", {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
+    // Human-like Navigation Flow: Google -> Naukri
+    console.log("Navigating to Google...");
+    await page.goto("https://www.google.com", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2000);
+
+    console.log("Searching for 'Naukri'...");
+    const searchInput = await page.$('textarea[name="q"]') || await page.$('input[name="q"]');
+    if (searchInput) {
+      await searchInput.fill("Naukri");
+      await page.keyboard.press("Enter");
+    }
+
+    await page.waitForNavigation({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2000);
+
+    console.log("Clicking on Naukri link...");
+    // Find link containing naukri.com
+    const naukriLink = await page.$('a[href*="naukri.com"]');
+    if (naukriLink) {
+      await naukriLink.click();
+    } else {
+      console.log("Naukri link not found in search, falling back to direct navigation...");
+      await page.goto("https://www.naukri.com");
+    }
 
     // Wait for page to load
-    await page.waitForTimeout(5000);
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(4000);
+
+    // Scroll to simulate human behavior
+    console.log("scrolling page...");
+    await page.mouse.wheel(0, 500);
+    await page.waitForTimeout(1000);
+    await page.mouse.wheel(0, -500);
+    await page.waitForTimeout(1000);
 
     // Handle any popups/modals
     try {
