@@ -599,9 +599,12 @@ async function performLogin(page) {
 async function initializeBrowser() {
   try {
     console.log("Launching browser...");
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+
     browser = await chromium.launch({
-      headless: false, // Set to true for headless mode
-      slowMo: 500, // Slow down operations for better reliability
+      headless: isProduction ? true : false,
+      slowMo: isProduction ? 0 : 500,
+      args: isProduction ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : []
     });
 
     const context = await browser.newContext({
