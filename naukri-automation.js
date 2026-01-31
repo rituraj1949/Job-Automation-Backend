@@ -651,11 +651,6 @@ async function initializeBrowser() {
 
     page = await context.newPage();
 
-    // Aggressively block heavy resources
-    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,eot}', route => route.abort());
-    await page.route('**/*googlesyndication*', route => route.abort());
-    await page.route('**/*doubleclick*', route => route.abort());
-
     // Start screenshot streaming for live view on frontend
     try {
       const { startScreenshotStream } = require('./screenshot-service');
