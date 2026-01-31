@@ -627,7 +627,8 @@ async function initializeBrowser() {
     const fs = require('fs');
     let contextOptions = {
       viewport: { width: 1920, height: 1080 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      // Switch to Mobile User Agent to bypass tight desktop security
+      userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
       locale: 'en-US',
       timezoneId: 'Asia/Kolkata',
       geolocation: { longitude: 77.2090, latitude: 28.6139 }, // Delhi
@@ -667,7 +668,8 @@ async function initializeBrowser() {
     // Human-like Navigation Flow: Google -> Naukri
     console.log("Navigating to Naukri.com...");
     try {
-      await page.goto("https://www.naukri.com", { waitUntil: "domcontentloaded", timeout: 60000 });
+      // Don't wait strictly for load event, just go
+      await page.goto("https://www.naukri.com", { timeout: 60000 });
       await page.waitForTimeout(5000);
 
       // Check for white screen / blocking
