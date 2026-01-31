@@ -651,28 +651,40 @@ async function initializeBrowser() {
     }
 
     // Human-like Navigation Flow: Google -> Naukri
-    console.log("Navigating to Google...");
-    await page.goto("https://www.google.com", { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(2000);
+    // Human-like Navigation Flow: Google -> Naukri
+    try {
+      console.log("Navigating to Google...");
+      await page.goto("https://www.google.com", { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(2000);
 
-    console.log("Searching for 'Naukri'...");
-    const searchInput = await page.$('textarea[name="q"]') || await page.$('input[name="q"]');
-    if (searchInput) {
-      await searchInput.fill("Naukri");
-      await page.keyboard.press("Enter");
-    }
+      console.log("Searching for 'Naukri'...");
+      await page.waitForSelector('textarea[name="q"], input[name="q"]', { state: 'visible', timeout: 5000 });
+      const searchInput = await page.$('textarea[name="q"]') || await page.$('input[name="q"]');
 
-    await page.waitForNavigation({ waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(2000);
+      if (searchInput) {
+        await searchInput.fill("Naukri");
+        await page.waitForTimeout(500);
+        await page.keyboard.press("Enter");
 
-    console.log("Clicking on Naukri link...");
-    // Find link containing naukri.com
-    const naukriLink = await page.$('a[href*="naukri.com"]');
-    if (naukriLink) {
-      await naukriLink.click();
-    } else {
-      console.log("Naukri link not found in search, falling back to direct navigation...");
-      await page.goto("https://www.naukri.com");
+        // Wait for results
+        await page.waitForSelector('#search', { state: 'visible', timeout: 10000 });
+        await page.waitForTimeout(2000);
+
+        console.log("Clicking on Naukri link...");
+        // Re-query ensuring element is attached to DOM
+        const naukriLink = await page.$('a[href*="naukri.com"]');
+        if (naukriLink) {
+          await Promise.all([
+            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { }),
+            naukriLink.click()
+          ]);
+        } else {
+          throw new Error("Naukri link not found in Google results");
+        }
+      }
+    } catch (e) {
+      console.log(`Google navigation failed (${e.message}), falling back to direct navigation...`);
+      await page.goto("https://www.naukri.com", { waitUntil: "domcontentloaded" });
     }
 
     // Wait for page to load
