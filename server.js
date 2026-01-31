@@ -10,9 +10,33 @@ const { startNaukriAutomation, runAutomationCycle, applyToAllJobs, extractAndPos
 
 const app = express();
 const server = http.createServer(app);
+
+// CORS configuration - allow both local and production frontends
+const allowedOrigins = [
+  'http://localhost:5173',  // Local development
+  'https://job-automation-frontend-woad.vercel.app',  // Production Vercel
+  /https:\/\/job-automation-frontend-.*\.vercel\.app$/  // Vercel preview deployments
+];
+
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173", // Vite dev server
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+
+      // Check if origin is in allowed list or matches regex
+      const isAllowed = allowedOrigins.some(allowed => {
+        if (typeof allowed === 'string') return allowed === origin;
+        if (allowed instanceof RegExp) return allowed.test(origin);
+        return false;
+      });
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -21,7 +45,21 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') return allowed === origin;
+      if (allowed instanceof RegExp) return allowed.test(origin);
+      return false;
+    });
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
