@@ -44,25 +44,20 @@ async function startScreenshotStream(page, platform = 'naukri', intervalMs = 100
  */
 async function captureAndEmitScreenshot(page, platform) {
     try {
-        // Capture screenshot as base64
-        const screenshot = await page.screenshot({
+        // Capture screenshot as buffer (more reliable than string)
+        const buffer = await page.screenshot({
             type: 'jpeg',
-            quality: 70, // Reduce quality for faster transmission
-            fullPage: false // Only visible viewport
+            quality: 50,
+            scale: 'css',
+            timeout: 5000,
+            caret: 'hide',
+            animations: 'disabled'
         });
 
-        // Convert to base64
-        const base64Image = screenshot.toString('base64');
+        const base64Image = buffer.toString('base64');
 
         // Emit to all connected clients
         global.io.emit('screenshot', {
-            platform,
-            image: `data:image/jpeg;base64,${base64Image}`,
-            timestamp: new Date().toISOString()
-        });
-
-        // Also emit platform-specific event
-        global.io.emit(`screenshot:${platform}`, {
             image: `data:image/jpeg;base64,${base64Image}`,
             timestamp: new Date().toISOString()
         });
