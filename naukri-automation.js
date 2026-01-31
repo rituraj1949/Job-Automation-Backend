@@ -618,6 +618,7 @@ async function initializeBrowser() {
           '--disable-dev-shm-usage',
           '--disable-blink-features=AutomationControlled',
           '--window-size=1920,1080',
+          '--disable-http2', // Fix for net::ERR_HTTP2_PROTOCOL_ERROR (Akamai block)
         ]
         : ['--disable-blink-features=AutomationControlled']
     });
