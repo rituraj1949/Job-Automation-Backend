@@ -598,9 +598,14 @@ async function performLogin(page) {
 // Initialize browser and navigate to Naukri.com
 async function initializeBrowser() {
   try {
-    console.log("Launching browser...");
     const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
+    // Set Playwright path for Render
+    if (isProduction) {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
+    }
+
+    console.log("Launching browser...");
     browser = await chromium.launch({
       headless: isProduction ? true : false,
       slowMo: isProduction ? 0 : 500,
