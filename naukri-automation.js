@@ -665,11 +665,17 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    // Human-like Navigation Flow: Google -> Naukri
-    console.log("Navigating to Naukri.com...");
+    // Navigate to Mobile Dashboard (Deep Link) to bypass homepage security
+    console.log("Navigating to Naukri Mobile Dashboard...");
     try {
-      // Don't wait strictly for load event, just go
-      await page.goto("https://www.naukri.com", { timeout: 60000 });
+      // 'commit' returns as soon as the server responds (ignoring hanging resources)
+      await page.goto("https://www.naukri.com/mnjuser/homepage", {
+        waitUntil: "commit",
+        timeout: 60000
+      });
+      console.log("✅ Server responded (Navigation committed)");
+
+      // Wait a bit for actual content
       await page.waitForTimeout(5000);
 
       // Check for white screen / blocking
