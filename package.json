@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "build": "npm install && npx playwright install --with-deps chromium"
+    "build": "npm install && npx playwright install chromium"
   },
   "keywords": [
     "playwright",
