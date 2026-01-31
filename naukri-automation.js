@@ -651,15 +651,14 @@ async function initializeBrowser() {
     }
 
     // Human-like Navigation Flow: Google -> Naukri
-    // Human-like Navigation Flow: Google -> Naukri
+    // Human-like Navigation Flow: DuckDuckGo -> Naukri (More lenient on bots)
     try {
-      console.log("Navigating to Google...");
-      await page.goto("https://www.google.com", { waitUntil: "domcontentloaded" });
+      console.log("Navigating to DuckDuckGo...");
+      await page.goto("https://duckduckgo.com", { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(2000);
 
       console.log("Searching for 'Naukri'...");
-      await page.waitForSelector('textarea[name="q"], input[name="q"]', { state: 'visible', timeout: 5000 });
-      const searchInput = await page.$('textarea[name="q"]') || await page.$('input[name="q"]');
+      const searchInput = await page.waitForSelector('input[name="q"]', { state: 'visible', timeout: 5000 });
 
       if (searchInput) {
         await searchInput.fill("Naukri");
@@ -667,11 +666,10 @@ async function initializeBrowser() {
         await page.keyboard.press("Enter");
 
         // Wait for results
-        await page.waitForSelector('#search', { state: 'visible', timeout: 10000 });
+        await page.waitForSelector('a[href*="naukri.com"]', { state: 'visible', timeout: 10000 });
         await page.waitForTimeout(2000);
 
         console.log("Clicking on Naukri link...");
-        // Re-query ensuring element is attached to DOM
         const naukriLink = await page.$('a[href*="naukri.com"]');
         if (naukriLink) {
           await Promise.all([
@@ -679,11 +677,11 @@ async function initializeBrowser() {
             naukriLink.click()
           ]);
         } else {
-          throw new Error("Naukri link not found in Google results");
+          throw new Error("Naukri link not found in DuckDuckGo results");
         }
       }
     } catch (e) {
-      console.log(`Google navigation failed (${e.message}), falling back to direct navigation...`);
+      console.log(`Search navigation failed (${e.message}), falling back to direct navigation...`);
       await page.goto("https://www.naukri.com", { waitUntil: "domcontentloaded" });
     }
 
