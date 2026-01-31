@@ -1,4 +1,6 @@
-const { chromium } = require("playwright");
+const { chromium } = require("playwright-extra");
+const stealth = require("puppeteer-extra-plugin-stealth")();
+chromium.use(stealth);
 const cron = require("node-cron");
 const path = require("path");
 const fs = require("fs").promises;
@@ -609,13 +611,32 @@ async function initializeBrowser() {
     browser = await chromium.launch({
       headless: isProduction ? true : false,
       slowMo: isProduction ? 0 : 500,
-      args: isProduction ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : []
+      args: isProduction
+        ? [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-blink-features=AutomationControlled',
+          '--window-size=1920,1080',
+        ]
+        : ['--disable-blink-features=AutomationControlled']
     });
 
     const context = await browser.newContext({
       viewport: { width: 1920, height: 1080 },
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      locale: 'en-US',
+      timezoneId: 'Asia/Kolkata',
+      geolocation: { longitude: 77.2090, latitude: 28.6139 }, // Delhi
+      permissions: ['geolocation'],
+      extraHTTPHeaders: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+      }
     });
 
     page = await context.newPage();
