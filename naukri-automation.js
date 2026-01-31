@@ -622,7 +622,9 @@ async function initializeBrowser() {
         : ['--disable-blink-features=AutomationControlled']
     });
 
-    const context = await browser.newContext({
+    // Load saved auth state if exists
+    const fs = require('fs');
+    let contextOptions = {
       viewport: { width: 1920, height: 1080 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
       locale: 'en-US',
@@ -633,11 +635,17 @@ async function initializeBrowser() {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
         'Upgrade-Insecure-Requests': '1',
-        'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
       }
-    });
+    };
+
+    if (fs.existsSync('auth.json')) {
+      console.log("✅ Loading saved authentication state from auth.json...");
+      contextOptions.storageState = 'auth.json';
+    } else {
+      console.log("⚠️ No auth.json found, starting fresh session.");
+    }
+
+    const context = await browser.newContext(contextOptions);
 
     page = await context.newPage();
 
@@ -651,38 +659,20 @@ async function initializeBrowser() {
     }
 
     // Human-like Navigation Flow: Google -> Naukri
-    // Human-like Navigation Flow: DuckDuckGo -> Naukri (More lenient on bots)
+    console.log("Navigating to Naukri.com...");
     try {
-      console.log("Navigating to DuckDuckGo...");
-      await page.goto("https://duckduckgo.com", { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(2000);
+      await page.goto("https://www.naukri.com", { waitUntil: "domcontentloaded", timeout: 60000 });
+      await page.waitForTimeout(5000);
 
-      console.log("Searching for 'Naukri'...");
-      const searchInput = await page.waitForSelector('input[name="q"]', { state: 'visible', timeout: 5000 });
-
-      if (searchInput) {
-        await searchInput.fill("Naukri");
-        await page.waitForTimeout(500);
-        await page.keyboard.press("Enter");
-
-        // Wait for results
-        await page.waitForSelector('a[href*="naukri.com"]', { state: 'visible', timeout: 10000 });
-        await page.waitForTimeout(2000);
-
-        console.log("Clicking on Naukri link...");
-        const naukriLink = await page.$('a[href*="naukri.com"]');
-        if (naukriLink) {
-          await Promise.all([
-            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => { }),
-            naukriLink.click()
-          ]);
-        } else {
-          throw new Error("Naukri link not found in DuckDuckGo results");
-        }
+      // Check for white screen / blocking
+      const bodyContent = await page.evaluate(() => document.body.innerText.length);
+      if (bodyContent < 100) {
+        console.warn("⚠️ Detected potential white screen/block. Reloading page...");
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await page.waitForTimeout(5000);
       }
     } catch (e) {
-      console.log(`Search navigation failed (${e.message}), falling back to direct navigation...`);
-      await page.goto("https://www.naukri.com", { waitUntil: "domcontentloaded" });
+      console.log(`Navigation failed: ${e.message}`);
     }
 
     // Wait for page to load
