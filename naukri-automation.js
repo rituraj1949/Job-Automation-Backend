@@ -665,28 +665,29 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    // Navigate to Mobile Dashboard (Deep Link) to bypass homepage security
-    console.log("Navigating to Naukri Mobile Dashboard...");
-    try {
-      // 'commit' returns as soon as the server responds (ignoring hanging resources)
-      await page.goto("https://www.naukri.com/mnjuser/homepage", {
-        waitUntil: "commit",
-        timeout: 60000
-      });
-      console.log("✅ Server responded (Navigation committed)");
+    // STRATEGY: "Legacy Side-Door"
+    // The legacy PHP login page (login.naukri.com) is often less secure than the main React app.
+    console.log("🛡️ Attempting Side-Door Entry (Legacy Login Portal)...");
 
-      // Wait a bit for actual content
+    try {
+      // Go to legacy page - Disable timeout to prevent panic
+      await page.goto("https://login.naukri.com/nLogin/Login.php", {
+        timeout: 0,
+        waitUntil: "commit"
+      });
+      console.log("✅ Side-Door Entered! (Legacy Login Page Loaded)");
+
+      await page.waitForTimeout(3000);
+
+      // Now "Jump" to the main dashboard
+      console.log("🚀 Jumping to Dashboard...");
+      await page.goto("https://www.naukri.com/mnjuser/homepage", { timeout: 0, waitUntil: "commit" });
       await page.waitForTimeout(5000);
 
-      // Check for white screen / blocking
-      const bodyContent = await page.evaluate(() => document.body.innerText.length);
-      if (bodyContent < 100) {
-        console.warn("⚠️ Detected potential white screen/block. Reloading page...");
-        await page.reload({ waitUntil: "domcontentloaded" });
-        await page.waitForTimeout(5000);
-      }
     } catch (e) {
-      console.log(`Navigation failed: ${e.message}`);
+      console.log(`Side-Door failed: ${e.message}`);
+      // Last ditch effort: Try generic google redirect
+      await page.goto("https://www.google.com/url?q=https://www.naukri.com", { timeout: 60000 });
     }
 
     // Wait for page to load
