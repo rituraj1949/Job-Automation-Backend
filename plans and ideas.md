@@ -1,0 +1,1 @@
+when we login into naukri.com, store the session like cookies 
