@@ -620,14 +620,20 @@ async function initializeBrowser() {
           '--window-size=1920,1080',
           '--disable-http2', // Fix for net::ERR_HTTP2_PROTOCOL_ERROR (Akamai block)
         ]
-        : ['--disable-blink-features=AutomationControlled']
+        : ['--disable-blink-features=AutomationControlled'],
+      // Use Proxy (Webshare) to mask Render IP
+      proxy: isProduction ? {
+        server: 'http://23.95.150.145:6114',
+        username: 'vywvhplw',
+        password: 'uztli2ytcc6u'
+      } : undefined
     });
 
     // Load saved auth state if exists
     let contextOptions = {
       viewport: { width: 1920, height: 1080 },
-      // "Master Key": Impersonate Googlebot (Naukri cannot block this or they lose SEO)
-      userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      // Standard Chrome User Agent (Proxy handles the IP masking)
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
       locale: 'en-US',
       timezoneId: 'Asia/Kolkata',
       geolocation: { longitude: 77.2090, latitude: 28.6139 }, // Delhi
@@ -639,9 +645,14 @@ async function initializeBrowser() {
       }
     };
 
-    // SKIP auth.json on Render to prevent "Windows Cookie on Linux" block
-    console.log("⚠️ Starting Fresh Session (Skipping auth.json to avoid OS mismatch)...");
+    if (fs.existsSync('auth.json')) {
+      console.log("✅ Loading saved authentication state from auth.json...");
+      contextOptions.storageState = 'auth.json';
+    } else {
+      console.log("⚠️ No auth.json found, starting fresh session.");
+    }
 
+    // Create Context
     const context = await browser.newContext(contextOptions);
 
     page = await context.newPage();
@@ -655,17 +666,18 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    // STRATEGY: "Browse Jobs Page" (Lowest Security)
-    console.log("🛡️ Strategy: Entering via Public Browse Jobs Page...");
+    // STRATEGY: "Proxy Direct Entry"
+    // With a residential proxy, we should be treated like a normal user.
+    console.log("🛡️ Strategy: Direct Entry via Proxy...");
 
     try {
-      await page.goto("https://www.naukri.com/browse-jobs", {
+      await page.goto("https://www.naukri.com/mnjuser/homepage", {
         timeout: 60000,
         waitUntil: "domcontentloaded"
       });
-      console.log("✅ Public Page Loaded!");
+      console.log("✅ Dashboard Access Attempted!");
 
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(5000);
 
       // Check if we are actually blocked (White screen check)
       const title = await page.title();
