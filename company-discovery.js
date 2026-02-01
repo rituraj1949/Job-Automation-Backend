@@ -57,6 +57,53 @@ async function discoverCareerPage(companyName, knownDomain = null) {
     return result;
 }
 
+// Strategy 2: Direct Domain Crawl
+async function directCrawlStrategy(page, companyName, domain) {
+    const commonPaths = [
+        '/careers',
+        '/jobs',
+        '/work-with-us',
+        '/join-us',
+        '/about/careers',
+        '/' // Check homepage for "Careers" link
+    ];
+
+    for (const path of commonPaths) {
+        try {
+            const url = `https://${domain}${path === '/' ? '' : path}`;
+            console.log(`...Trying direct URL: ${url}`);
+
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+            // Check if page exists (Not 404)
+            const title = await page.title();
+            if (title.includes('404') || title.includes('Not Found')) {
+                continue;
+            }
+
+            // Keyword Validation
+            if (isValidCareerPage(page.url(), companyName)) {
+                return new DiscoveryResult(companyName, domain, page.url(), 'direct', 'found');
+            }
+
+            // Search page for "Careers" link if on homepage
+            if (path === '/') {
+                const careerLink = await page.$('a[href*="career"], a[href*="job"]');
+                if (careerLink) {
+                    const href = await careerLink.getAttribute('href');
+                    const fullUrl = new URL(href, url).toString();
+                    return new DiscoveryResult(companyName, domain, fullUrl, 'direct', 'found');
+                }
+            }
+
+        } catch (e) {
+            // Ignore timeouts/errors and try next path
+            continue;
+        }
+    }
+    return null;
+}
+
 // Strategy 1: Google Search (Controlled)
 async function googleSearchStrategy(page, companyName) {
     try {
