@@ -624,11 +624,10 @@ async function initializeBrowser() {
     });
 
     // Load saved auth state if exists
-    const fs = require('fs');
     let contextOptions = {
       viewport: { width: 1920, height: 1080 },
-      // Use Linux User Agent to match Render's actual OS (Prevents "OS Mismatch" blocking)
-      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      // "Master Key": Impersonate Googlebot (Naukri cannot block this or they lose SEO)
+      userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
       locale: 'en-US',
       timezoneId: 'Asia/Kolkata',
       geolocation: { longitude: 77.2090, latitude: 28.6139 }, // Delhi
