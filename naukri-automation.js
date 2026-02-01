@@ -621,11 +621,11 @@ async function initializeBrowser() {
           '--disable-http2', // Fix for net::ERR_HTTP2_PROTOCOL_ERROR (Akamai block)
         ]
         : ['--disable-blink-features=AutomationControlled'],
-      // Use Proxy (Webshare) to mask Render IP
-      proxy: isProduction ? {
-        server: 'http://198.105.121.200:6462',
-        username: 'vywvhplw',
-        password: 'uztli2ytcc6u'
+      // Use Proxy from Environment Variables (Dynamic)
+      proxy: process.env.PROXY_SERVER ? {
+        server: process.env.PROXY_SERVER,
+        username: process.env.PROXY_USERNAME,
+        password: process.env.PROXY_PASSWORD
       } : undefined
     });
 
