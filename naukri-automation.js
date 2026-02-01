@@ -607,13 +607,17 @@ async function initializeBrowser() {
       process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
     }
 
-    console.log("Launching browser with Cloudflare proxy...");
+    // Dynamic Cloudflare Proxy Configuration
+    const proxyUrl = process.env.PROXY_SERVER || 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443';
+
+    console.log(`Launching browser with proxy: ${proxyUrl}`);
+
     browser = await chromium.launch({
       headless: isProduction ? true : false,
       slowMo: isProduction ? 0 : 500,
       args: isProduction ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : [],
       proxy: {
-        server: 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443'
+        server: proxyUrl
       }
     });
 
