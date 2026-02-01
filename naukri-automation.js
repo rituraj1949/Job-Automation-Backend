@@ -660,29 +660,41 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    // STRATEGY: "Legacy Side-Door"
-    // The legacy PHP login page (login.naukri.com) is often less secure than the main React app.
-    console.log("🛡️ Attempting Side-Door Entry (Legacy Login Portal)...");
+    // STRATEGY: "Public Page First"
+    // Dashboards often block bots or crash if auth is weird. 
+    // Public search pages are optimized for SEO and bots (Google).
+    console.log("🛡️ Strategy: Entering via Public Job Search Page...");
 
     try {
-      // Go to legacy page - Disable timeout to prevent panic
-      await page.goto("https://login.naukri.com/nLogin/Login.php", {
-        timeout: 0,
-        waitUntil: "commit"
+      await page.goto("https://www.naukri.com/it-jobs", {
+        timeout: 60000,
+        waitUntil: "domcontentloaded"
       });
-      console.log("✅ Side-Door Entered! (Legacy Login Page Loaded)");
+      console.log("✅ Public Page Loaded!");
 
       await page.waitForTimeout(3000);
 
-      // Now "Jump" to the main dashboard
-      console.log("🚀 Jumping to Dashboard...");
-      await page.goto("https://www.naukri.com/mnjuser/homepage", { timeout: 0, waitUntil: "commit" });
-      await page.waitForTimeout(5000);
+      // Check if we are actually blocked (White screen check)
+      const title = await page.title();
+      console.log(`Page Title: ${title}`);
+
+      if (!title || title === "") {
+        throw new Error("White screen detected (Empty Title)");
+      }
+
+      // Now try to go to dashboard OR just stay here and login
+      console.log("🚀 Attempting to access Login/Dashboard...");
+      const loginButton = await page.$('a[title="Jobseeker Login"]');
+      if (loginButton) {
+        console.log("Found Login Button - Session might be expired");
+      } else {
+        console.log("No Login button found - We might be logged in!");
+      }
 
     } catch (e) {
-      console.log(`Side-Door failed: ${e.message}`);
-      // Last ditch effort: Try generic google redirect
-      await page.goto("https://www.google.com/url?q=https://www.naukri.com", { timeout: 60000 });
+      console.log(`Entry failed: ${e.message}`);
+      // Fallback
+      await page.goto("https://www.naukri.com", { timeout: 60000 });
     }
 
     // Wait for page to load
