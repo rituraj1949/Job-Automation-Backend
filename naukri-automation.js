@@ -667,28 +667,6 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    // TEST START: Verify Browser & Proxy on LinkedIn
-    console.log("🧪 TEST MODE: Navigating to LinkedIn...");
-
-    try {
-      await page.goto("https://www.linkedin.com", {
-        timeout: 60000,
-        waitUntil: "domcontentloaded"
-      });
-      console.log("✅ LinkedIn Loaded Successfully!");
-
-      const title = await page.title();
-      console.log(`Page Title: ${title}`);
-
-      // wait a bit to see it
-      await page.waitForTimeout(10000);
-
-      // return { success: true, message: "LinkedIn Test Complete" }; // Commented out to allow Naukri flow to continue
-
-    } catch (e) {
-      console.log(`LinkedIn connection failed: ${e.message}`);
-    }
-
     // STRATEGY: "Proxy Direct Entry"
     // With a residential proxy, we should be treated like a normal user.
     console.log("🛡️ Strategy: Direct Entry via Proxy...");

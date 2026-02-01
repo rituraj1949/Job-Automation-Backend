@@ -2,8 +2,15 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 
 (async () => {
-    // Launch browser in headed mode so you can see it
-    const browser = await chromium.launch({ headless: false });
+    // Launch browser in headed mode with PROXY
+    const browser = await chromium.launch({
+        headless: false,
+        proxy: {
+            server: 'http://23.95.150.145:6114',
+            username: 'vywvhplw',
+            password: 'uztli2ytcc6u'
+        }
+    });
     const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 }
     });
