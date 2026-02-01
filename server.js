@@ -251,6 +251,17 @@ app.post('/test-screenshot', async (req, res) => {
   }
 });
 
+app.get('/api/debug-proxy', (req, res) => {
+  const { exec } = require('child_process');
+  exec('ps aux | grep cloudflared && netstat -tuln | grep 9090', (err, stdout, stderr) => {
+    res.json({
+      stdout: stdout,
+      stderr: stderr,
+      error: err ? err.message : null
+    });
+  });
+});
+
 server.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`Socket.IO ready for connections`);
