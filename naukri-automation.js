@@ -627,8 +627,8 @@ async function initializeBrowser() {
     const fs = require('fs');
     let contextOptions = {
       viewport: { width: 1920, height: 1080 },
-      // Switch to Mobile User Agent to bypass tight desktop security
-      userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+      // Use Linux User Agent to match Render's actual OS (Prevents "OS Mismatch" blocking)
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
       locale: 'en-US',
       timezoneId: 'Asia/Kolkata',
       geolocation: { longitude: 77.2090, latitude: 28.6139 }, // Delhi
@@ -640,12 +640,8 @@ async function initializeBrowser() {
       }
     };
 
-    if (fs.existsSync('auth.json')) {
-      console.log("✅ Loading saved authentication state from auth.json...");
-      contextOptions.storageState = 'auth.json';
-    } else {
-      console.log("⚠️ No auth.json found, starting fresh session.");
-    }
+    // SKIP auth.json on Render to prevent "Windows Cookie on Linux" block
+    console.log("⚠️ Starting Fresh Session (Skipping auth.json to avoid OS mismatch)...");
 
     const context = await browser.newContext(contextOptions);
 
@@ -660,13 +656,11 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    // STRATEGY: "Public Page First"
-    // Dashboards often block bots or crash if auth is weird. 
-    // Public search pages are optimized for SEO and bots (Google).
-    console.log("🛡️ Strategy: Entering via Public Job Search Page...");
+    // STRATEGY: "Browse Jobs Page" (Lowest Security)
+    console.log("🛡️ Strategy: Entering via Public Browse Jobs Page...");
 
     try {
-      await page.goto("https://www.naukri.com/it-jobs", {
+      await page.goto("https://www.naukri.com/browse-jobs", {
         timeout: 60000,
         waitUntil: "domcontentloaded"
       });
