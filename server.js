@@ -168,6 +168,36 @@ app.post('/extract-jobs', async (req, res) => {
   }
 });
 
+// Roadmap Step 9: Execution Lifecycle (Trigger Discovery)
+app.post('/api/discover-company', async (req, res) => {
+  const { companyName, domain } = req.body;
+
+  if (!companyName) {
+    return res.status(400).json({ error: 'companyName is required' });
+  }
+
+  res.json({
+    message: `Discovery started for ${companyName}`,
+    status: 'processing'
+  });
+
+  // Run in background
+  (async () => {
+    try {
+      const { discoverCareerPage } = require('./company-discovery');
+      const result = await discoverCareerPage(companyName, domain);
+
+      console.log('Discovery Result:', result);
+
+      // Roadmap Step 8: Save to DB (Placeholder until DB logic is centralized)
+      // For now, we just log it. Ideally, save to MongoDB 'companies' collection.
+
+    } catch (e) {
+      console.error('Discovery failed:', e);
+    }
+  })();
+});
+
 // Get applied jobs endpoint
 app.get('/jobs', (req, res) => {
   const { getAppliedJobs } = require('./naukri-automation');

@@ -118,11 +118,5 @@ function isValidCareerPage(url, companyName) {
     return hasKeyword && !isLinkedIn && !lowerUrl.includes('glassdoor') && !lowerUrl.includes('indeed');
 }
 
-// --- Execution (Test Scaffolding) ---
-(async () => {
-    // Example Test Run
-    const targetCompany = process.argv[2] || "Antigravity";
-    const result = await discoverCareerPage(targetCompany);
-    console.log('\n📜 FINAL RESULT:');
-    console.log(JSON.stringify(result, null, 2));
-})();
+// Export
+module.exports = { discoverCareerPage };
