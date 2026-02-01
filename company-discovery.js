@@ -22,7 +22,7 @@ async function discoverCareerPage(companyName, knownDomain = null) {
 
     // Roadmap Step 2.2: Playwright with Proxy
     const browser = await chromium.launch({
-        headless: false, // Visible for debugging/human-like checking
+        headless: true, // Must be true for Render (No XServer)
         proxy: { server: PROXY_URL },
         args: ['--disable-blink-features=AutomationControlled']
     });
