@@ -168,36 +168,6 @@ app.post('/extract-jobs', async (req, res) => {
   }
 });
 
-// Roadmap Step 9: Execution Lifecycle (Trigger Discovery)
-app.post('/api/discover-company', async (req, res) => {
-  const { companyName, domain } = req.body;
-
-  if (!companyName) {
-    return res.status(400).json({ error: 'companyName is required' });
-  }
-
-  res.json({
-    message: `Discovery started for ${companyName}`,
-    status: 'processing'
-  });
-
-  // Run in background
-  (async () => {
-    try {
-      const { discoverCareerPage } = require('./company-discovery');
-      const result = await discoverCareerPage(companyName, domain);
-
-      console.log('Discovery Result:', result);
-
-      // Roadmap Step 8: Save to DB (Placeholder until DB logic is centralized)
-      // For now, we just log it. Ideally, save to MongoDB 'companies' collection.
-
-    } catch (e) {
-      console.error('Discovery failed:', e);
-    }
-  })();
-});
-
 // Get applied jobs endpoint
 app.get('/jobs', (req, res) => {
   const { getAppliedJobs } = require('./naukri-automation');
@@ -251,65 +221,18 @@ app.post('/test-screenshot', async (req, res) => {
   }
 });
 
-// Cloudflare Tunnel Setup (Integrated)
-const { spawn, execSync } = require('child_process');
-const fs = require('fs');
-
-async function setupTunnel() {
-  console.log("🚀 Initializing Tunnel from Node.js...");
-
-  // 1. Download if missing
-  if (!fs.existsSync('./cloudflared')) {
-    console.log("⬇️ Downloading cloudflared...");
+server.listen(PORT, async () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Socket.IO ready for connections`);
+  // Auto-start scheduler on boot (6:00, 9:00, 12:00, 2:15 PM). Set AUTO_START_SCHEDULER=0 to skip.
+  if (process.env.AUTO_START_SCHEDULER !== '0') {
     try {
-      execSync('curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared');
-      execSync('chmod +x cloudflared');
+      await startNaukriAutomation();
+      console.log('Scheduler auto-started. Use POST /stop to disable.');
     } catch (e) {
-      console.error("Failed to download cloudflared:", e.message);
+      console.warn('Scheduler auto-start failed:', e.message);
     }
+  } else {
+    console.log('Use POST /start to begin automation');
   }
-
-  // 2. Start Tunnel
-  const TUNNEL_URL = "may-showcase-buyers-dark.trycloudflare.com";
-  const LOCAL_PORT = "127.0.0.1:9090";
-
-  console.log(`🔗 Establishing tunnel to ${TUNNEL_URL} -> ${LOCAL_PORT}`);
-  const tunnel = spawn('./cloudflared', ['access', 'tcp', '--hostname', TUNNEL_URL, '--url', LOCAL_PORT]);
-
-  tunnel.stdout.on('data', (data) => console.log(`[Cloudflared] ${data}`));
-  tunnel.stderr.on('data', (data) => console.error(`[Cloudflared] ${data}`)); // Cloudflare logs to stderr mostly
-
-  // Give it 5 seconds to warm up
-  await new Promise(r => setTimeout(r, 5000));
-}
-
-
-app.get('/api/debug-proxy', (req, res) => {
-  const { exec } = require('child_process');
-  exec('ps aux | grep cloudflared && netstat -tuln | grep 9090', (err, stdout, stderr) => {
-    res.json({
-      stdout: stdout,
-      stderr: stderr,
-      error: err ? err.message : null
-    });
-  });
-});
-
-// Start Server AFTER Tunnel
-setupTunnel().then(() => {
-  server.listen(PORT, async () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Socket.IO ready for connections`);
-    // Auto-start scheduler on boot (6:00, 9:00, 12:00, 2:15 PM). Set AUTO_START_SCHEDULER=0 to skip.
-    if (process.env.AUTO_START_SCHEDULER !== '0') {
-      try {
-        // await startNaukriAutomation(); // Disable auto-start for now to save resources
-        console.log('Scheduler ready (Auto-start paused for stability).');
-      } catch (e) {
-        console.warn('Scheduler auto-start failed:', e.message);
-      }
-    } else {
-      console.log('Use POST /start to begin automation');
-    }
-  });
 });

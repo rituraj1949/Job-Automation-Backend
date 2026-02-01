@@ -607,55 +607,21 @@ async function initializeBrowser() {
       process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
     }
 
-    console.log("Launching browser...");
+    console.log("Launching browser with Cloudflare proxy...");
     browser = await chromium.launch({
       headless: isProduction ? true : false,
       slowMo: isProduction ? 0 : 500,
-      args: isProduction
-        ? [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-blink-features=AutomationControlled',
-          '--window-size=1920,1080',
-          '--disable-http2', // Fix for net::ERR_HTTP2_PROTOCOL_ERROR (Akamai block)
-        ]
-        : ['--disable-blink-features=AutomationControlled'],
-      // Roadmap Step 2.2: Enforce Local Proxy Usage via Cloudflare Tunnel
+      args: isProduction ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : [],
       proxy: {
-        server: 'socks5://127.0.0.1:9090'
+        server: 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443'
       }
     });
 
-    // Load saved auth state if exists
-    const fs = require('fs');
-    let contextOptions = {
+    const context = await browser.newContext({
       viewport: { width: 1920, height: 1080 },
-      // Android Mobile User Agent (Matches a phone on a mobile/proxy network)
-      userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
-      locale: 'en-US',
-      timezoneId: 'Europe/London', // Match Proxy Timezone
-      geolocation: { longitude: -0.1278, latitude: 51.5074 }, // London
-      permissions: ['geolocation'],
-      extraHTTPHeaders: {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Upgrade-Insecure-Requests': '1',
-      }
-    };
-
-    /* 
-    if (fs.existsSync('auth.json')) {
-      console.log("✅ Loading saved authentication state from auth.json...");
-      contextOptions.storageState = 'auth.json';
-    } else {
-      console.log("⚠️ No auth.json found, starting fresh session.");
-    }
-    */
-    console.log("⚠️ Starting Fresh Session (Test Mode)...");
-
-    // Create Context
-    const context = await browser.newContext(contextOptions);
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    });
 
     page = await context.newPage();
 
@@ -668,40 +634,29 @@ async function initializeBrowser() {
       console.warn("Screenshot streaming not available:", err.message);
     }
 
-    // STRATEGY: "Proxy Direct Entry"
-    // With a residential proxy, we should be treated like a normal user.
-    console.log("🛡️ Strategy: Direct Entry via Proxy...");
+    // Human-like Navigation Flow: Google -> Naukri
+    console.log("Navigating to Google...");
+    await page.goto("https://www.google.com", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2000);
 
-    try {
-      await page.goto("https://www.naukri.com/mnjuser/homepage", {
-        timeout: 60000,
-        waitUntil: "domcontentloaded"
-      });
-      console.log("✅ Dashboard Access Attempted!");
+    console.log("Searching for 'Naukri'...");
+    const searchInput = await page.$('textarea[name="q"]') || await page.$('input[name="q"]');
+    if (searchInput) {
+      await searchInput.fill("Naukri");
+      await page.keyboard.press("Enter");
+    }
 
-      await page.waitForTimeout(5000);
+    await page.waitForNavigation({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2000);
 
-      // Check if we are actually blocked (White screen check)
-      const title = await page.title();
-      console.log(`Page Title: ${title}`);
-
-      if (!title || title === "") {
-        throw new Error("White screen detected (Empty Title)");
-      }
-
-      // Now try to go to dashboard OR just stay here and login
-      console.log("🚀 Attempting to access Login/Dashboard...");
-      const loginButton = await page.$('a[title="Jobseeker Login"]');
-      if (loginButton) {
-        console.log("Found Login Button - Session might be expired");
-      } else {
-        console.log("No Login button found - We might be logged in!");
-      }
-
-    } catch (e) {
-      console.log(`Entry failed: ${e.message}`);
-      // Fallback
-      await page.goto("https://www.naukri.com", { timeout: 60000 });
+    console.log("Clicking on Naukri link...");
+    // Find link containing naukri.com
+    const naukriLink = await page.$('a[href*="naukri.com"]');
+    if (naukriLink) {
+      await naukriLink.click();
+    } else {
+      console.log("Naukri link not found in search, falling back to direct navigation...");
+      await page.goto("https://www.naukri.com");
     }
 
     // Wait for page to load

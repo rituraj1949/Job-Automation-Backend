@@ -44,23 +44,27 @@ async function startScreenshotStream(page, platform = 'naukri', intervalMs = 100
  */
 async function captureAndEmitScreenshot(page, platform) {
     try {
-        // Use CDP (Chrome DevTools Protocol) for instant screenshots
-        // This bypasses Playwright's "wait for fonts" logic which is causing timeouts
-        const client = await page.context().newCDPSession(page);
-        const { data } = await client.send('Page.captureScreenshot', {
-            format: 'jpeg',
-            quality: 50,
-            fromSurface: true
+        // Capture screenshot as base64
+        const screenshot = await page.screenshot({
+            type: 'jpeg',
+            quality: 70, // Reduce quality for faster transmission
+            fullPage: false // Only visible viewport
         });
 
-        // data is already a base64 string
-        const base64Image = data;
+        // Convert to base64
+        const base64Image = screenshot.toString('base64');
 
         // Emit to all connected clients
         global.io.emit('screenshot', {
             platform,
             image: `data:image/jpeg;base64,${base64Image}`,
-            timestamp: Date.now()
+            timestamp: new Date().toISOString()
+        });
+
+        // Also emit platform-specific event
+        global.io.emit(`screenshot:${platform}`, {
+            image: `data:image/jpeg;base64,${base64Image}`,
+            timestamp: new Date().toISOString()
         });
     } catch (error) {
         console.error('Error in captureAndEmitScreenshot:', error.message);
