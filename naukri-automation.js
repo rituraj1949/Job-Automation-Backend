@@ -608,7 +608,12 @@ async function initializeBrowser() {
     }
 
     // Dynamic Cloudflare Proxy Configuration
-    const proxyUrl = process.env.PROXY_SERVER || 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443';
+    let proxyUrl = process.env.PROXY_SERVER || 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443';
+
+    // Auto-fix protocol if using port 443 on a Cloudflare tunnel (must use HTTPS for TLS termination)
+    if (proxyUrl.includes('trycloudflare.com') && proxyUrl.includes(':443') && proxyUrl.startsWith('http://')) {
+      proxyUrl = proxyUrl.replace('http://', 'https://');
+    }
 
     console.log(`Launching browser with proxy: ${proxyUrl}`);
 

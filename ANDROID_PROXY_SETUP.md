@@ -1,12 +1,12 @@
-# Antigravity IDE – Final Proxy Instruction
+# Antigravity IDE – Final Proxy Instruction (Updated for Dynamic Tunnels)
 
-This document defines the final, correct, and simplified networking setup for Antigravity. The IDE / agent must follow this exactly and must not infer or add extra steps.
+This document defines the final, correct, and simplified networking setup for Antigravity, respecting the dynamic nature of Cloudflare Quick Tunnels.
 
 ---
 
 ## 1. High-Level Goal
 
-Run Playwright on Render using a real mobile IP provided by an Android phone, so that sites like naukri.com do not block automation.
+Run Playwright on Render using a real mobile IP provided by an Android phone via a Cloudflare Quick Tunnel. The tunnel URL is dynamic and rotates on restart.
 
 ---
 
@@ -23,8 +23,9 @@ Microsocks (SOCKS5)
 Android Mobile Network (Real IP)
 
 Key idea:
-- The phone provides the IP
-- Render only talks to one proxy URL
+- The phone provides the IP.
+- The tunnel URL rotates.
+- The system must accept the current URL via configuration (Env Var).
 
 ---
 
@@ -32,21 +33,11 @@ Key idea:
 
 **Android (Termux)**
 
-These services are ALREADY running on the phone:
+*   **microsocks** (Port 1080)
+*   **privoxy** (Port 8118 -> 1080)
+*   **cloudflared** (Exposes privoxy via Quick Tunnel)
 
-1.  **microsocks**
-    *   Port: 1080
-    *   Auth: user / pass
-
-2.  **privoxy**
-    *   Port: 8118
-    *   Forwards all traffic to microsocks
-
-3.  **cloudflared tunnel**
-    *   Exposes privoxy over HTTPS
-    *   Generated public hostname: `flows-delight-herself-houston.trycloudflare.com`
-
-**⚠️ Do NOT try to start or verify these from Render.**
+**⚠️ Cloudflare URL changes on every restart.**
 
 ---
 
@@ -54,12 +45,10 @@ These services are ALREADY running on the phone:
 
 The IDE / agent MUST obey these rules:
 
-❌ Do NOT use ngrok
-❌ Do NOT use localhost on Render
-❌ Do NOT run cloudflared on Render
-❌ Do NOT perform local proxy health checks on Render
-✅ Assume proxy is READY
-✅ Use the Cloudflare hostname directly
+❌ Do NOT hardcode the proxy URL as "permanent".
+❌ Do NOT fail fatally just because the URL changed.
+✅ DO read `PROXY_SERVER` from environment variables.
+✅ DO allow the user to update the proxy URL manually in the Env Vars.
 
 ---
 
@@ -68,18 +57,27 @@ The IDE / agent MUST obey these rules:
 **Playwright (Render)**
 
 ```javascript
-const browser = await chromium.launch({
+// Dynamic Cloudflare Proxy Configuration
+const proxyUrl = process.env.PROXY_SERVER || 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443';
+
+console.log(`Launching browser with proxy: ${proxyUrl}`);
+
+browser = await chromium.launch({
+  // ... other args
   proxy: {
-    server: 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443'
-  },
-  headless: false
+    server: proxyUrl
+  }
 });
 ```
 
-This configuration is authoritative.
-
 ---
 
-## 6. Verification Rule
+## 6. Workflow for Rotating Tunnels
 
-The IDE must consider the proxy working if the browser launches without error using this configuration.
+1.  User starts `cloudflared` on Android.
+2.  User gets new URL (e.g., `https://cat-dog-fish.trycloudflare.com`).
+3.  User updates `PROXY_SERVER` environment variable on Render (or locally).
+    *   Format: `http://user:pass@cat-dog-fish.trycloudflare.com:443`
+4.  Automation runs using the new URL.
+
+---
