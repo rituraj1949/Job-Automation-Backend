@@ -4,7 +4,7 @@
   "description": "Playwright-enabled server app to automate ChatGPT interactions",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "bash start.sh",
     "dev": "node server.js",
     "build": "npm install && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium"
   },
