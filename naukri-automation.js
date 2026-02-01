@@ -621,12 +621,10 @@ async function initializeBrowser() {
           '--disable-http2', // Fix for net::ERR_HTTP2_PROTOCOL_ERROR (Akamai block)
         ]
         : ['--disable-blink-features=AutomationControlled'],
-      // Use Proxy from Environment Variables (Dynamic)
-      proxy: process.env.PROXY_SERVER ? {
-        server: process.env.PROXY_SERVER,
-        username: process.env.PROXY_USERNAME,
-        password: process.env.PROXY_PASSWORD
-      } : undefined
+      // Roadmap Step 2.2: Enforce Local Proxy Usage via Cloudflare Tunnel
+      proxy: {
+        server: 'socks5://127.0.0.1:9090'
+      }
     });
 
     // Load saved auth state if exists
