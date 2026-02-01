@@ -633,11 +633,11 @@ async function initializeBrowser() {
     const fs = require('fs');
     let contextOptions = {
       viewport: { width: 1920, height: 1080 },
-      // Standard Chrome User Agent (Proxy handles the IP masking)
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      // Android Mobile User Agent (Matches a phone on a mobile/proxy network)
+      userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
       locale: 'en-US',
-      timezoneId: 'Asia/Kolkata',
-      geolocation: { longitude: 77.2090, latitude: 28.6139 }, // Delhi
+      timezoneId: 'Europe/London', // Match Proxy Timezone
+      geolocation: { longitude: -0.1278, latitude: 51.5074 }, // London
       permissions: ['geolocation'],
       extraHTTPHeaders: {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -646,12 +646,15 @@ async function initializeBrowser() {
       }
     };
 
+    /* 
     if (fs.existsSync('auth.json')) {
       console.log("✅ Loading saved authentication state from auth.json...");
       contextOptions.storageState = 'auth.json';
     } else {
       console.log("⚠️ No auth.json found, starting fresh session.");
     }
+    */
+    console.log("⚠️ Starting Fresh Session (Test Mode)...");
 
     // Create Context
     const context = await browser.newContext(contextOptions);
