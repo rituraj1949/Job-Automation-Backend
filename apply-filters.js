@@ -8,7 +8,7 @@ const FRESHNESS = "Last 1 Day";
 async function applyFilters() {
   console.log('Connecting to browser...');
   
-  // Try to connect to existing browser or launch new on
+  // Try to connect to existing browser or launch new onvv
   let browser;
   try {
     // Try to connect to existing browser (if launched with --remote-debugging-port)
