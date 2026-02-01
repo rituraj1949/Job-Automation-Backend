@@ -6,7 +6,7 @@ const fs = require('fs');
     const browser = await chromium.launch({
         headless: false,
         proxy: {
-            server: 'http://23.95.150.145:6114',
+            server: 'http://198.105.121.200:6462',
             username: 'vywvhplw',
             password: 'uztli2ytcc6u'
         }
@@ -21,10 +21,11 @@ const fs = require('fs');
 
     console.log('👉 Please LOG IN to Naukri manually now!');
     console.log('👉 Solve any CAPTCHAs.');
-    console.log('⏳ You have 1.5 minutes (90 seconds) to complete login...');
+    console.log('⏳ You have 3 minutes to complete login...');
+    console.log('👉 DO NOT CLOSE THE BROWSER MANUALLY. Wait for it to close.');
 
     // Wait enough time for manual interaction
-    await page.waitForTimeout(90000);
+    await page.waitForTimeout(180000);
 
     // Save storage state logic
     console.log('💾 Saving authentication state to auth.json...');

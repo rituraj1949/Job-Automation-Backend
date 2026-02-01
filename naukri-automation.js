@@ -623,7 +623,7 @@ async function initializeBrowser() {
         : ['--disable-blink-features=AutomationControlled'],
       // Use Proxy (Webshare) to mask Render IP
       proxy: isProduction ? {
-        server: 'http://23.95.150.145:6114',
+        server: 'http://198.105.121.200:6462',
         username: 'vywvhplw',
         password: 'uztli2ytcc6u'
       } : undefined
