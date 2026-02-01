@@ -630,6 +630,7 @@ async function initializeBrowser() {
     });
 
     // Load saved auth state if exists
+    const fs = require('fs');
     let contextOptions = {
       viewport: { width: 1920, height: 1080 },
       // Standard Chrome User Agent (Proxy handles the IP masking)
