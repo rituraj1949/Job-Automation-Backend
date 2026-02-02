@@ -13,7 +13,7 @@ async function applyFilters() {
   try {
     // Try to connect to existing browser (if launched with --remote-debugging-port)
     browser = await chromium.connectOverCDP('http://localhost:9222');
-    console.log('Connected to existing browser');
+    console.log('Connected to existing browser...');
   } catch (e) {
     // Launch new browser if connection fails
     browser = await chromium.launch({ 
