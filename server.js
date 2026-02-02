@@ -12,6 +12,10 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const { startNaukriAutomation, runAutomationCycle, applyToAllJobs, extractAndPostJobsOnly } = require('./naukri-automation');
+const { runRandomActivity, stopRandomActivity, isRandomActivityRunning } = require('./random-activity');
+const { runCareerAutomation, stopCareerAutomation, togglePauseCareerAutomation, isCareerAutomationRunning, isCareerAutomationPaused } = require('./career-automation-dual-tab');
+
+
 
 const app = express();
 const server = http.createServer(app);
@@ -97,6 +101,10 @@ app.get('/', (req, res) => {
       'run-now': '/run-now (POST – run one cycle immediately for testing)',
       'apply-all': '/apply-all (POST – start applying to all jobs from job 1)',
       'extract-jobs': '/extract-jobs (POST – extract jobs and post to API without applying)',
+      'random-activity': '/random-activity (POST - start searching and visiting random sites)',
+      'stop-random': '/stop-random (POST - stop random activity)',
+      'career-automation': '/career-automation (POST - fetch companies and scan career sites)',
+      'stop-career': '/stop-career (POST - stop career automation)',
       jobs: '/jobs'
     }
   });
@@ -166,6 +174,75 @@ app.post('/extract-jobs', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Random activity endpoints
+app.post('/random-activity', async (req, res) => {
+  try {
+    if (isRandomActivityRunning()) {
+      return res.status(400).json({ error: 'Random activity is already running' });
+    }
+
+    // Run in background
+    runRandomActivity().catch(err => console.error('Random activity background error:', err));
+
+    res.json({ message: 'Random browser activity started. Screenshots will be streamed via Socket.io' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/stop-random', (req, res) => {
+  try {
+    stopRandomActivity();
+    res.json({ message: 'Random activity stopped' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Career automation endpoints
+app.post('/career-automation', async (req, res) => {
+  try {
+    if (isCareerAutomationRunning()) {
+      return res.status(400).json({ error: 'Career automation is already running' });
+    }
+
+    // Run in background
+    runCareerAutomation().catch(err => console.error('Career automation background error:', err));
+
+    res.json({ message: 'Career automation started. Scanning company websites for Gen AI keywords...' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/stop-career', (req, res) => {
+  try {
+    stopCareerAutomation();
+    res.json({ message: 'Career automation stopped' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/toggle-pause-career', (req, res) => {
+  try {
+    const isPaused = togglePauseCareerAutomation();
+    res.json({
+      message: isPaused ? 'Career automation paused' : 'Career automation resumed',
+      isPaused: isPaused
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/career-status', (req, res) => {
+  res.json({
+    isRunning: isCareerAutomationRunning(),
+    isPaused: isCareerAutomationPaused()
+  });
 });
 
 // Get applied jobs endpoint
