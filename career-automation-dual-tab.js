@@ -2,7 +2,7 @@ const { chromium } = require("playwright-extra");
 const stealth = require("puppeteer-extra-plugin-stealth")();
 chromium.use(stealth);
 const axios = require("axios");
-const { startScreenshotStream, stopScreenshotStream, emitAutomationStatus } = require('./screenshot-service');
+const { startScreenshotStream, stopScreenshotStream, emitAutomationStatus, emitLog } = require('./screenshot-service');
 
 const FETCH_COMPANIES_URL = "https://backend-emails-elxz.onrender.com/api/companies";
 const POST_COMPANY_URL = "https://backend-emails-elxz.onrender.com/api/companies";
@@ -33,13 +33,13 @@ async function runCareerAutomation() {
         const companies = response.data.companies || response.data;
 
         if (!Array.isArray(companies) || companies.length === 0) {
-            console.log("No companies found to process.");
+            emitLog("No companies found to process", "warning");
             emitAutomationStatus("No companies found");
             isRunning = false;
             return;
         }
 
-        console.log(`Found ${companies.length} companies. Starting automation...`);
+        emitLog(`Found ${companies.length} companies. Starting dual-tab automation...`, "success");
 
         // Run headless in production, headed in local development
         const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
@@ -57,18 +57,18 @@ async function runCareerAutomation() {
         // Create TWO tabs with error handling
         try {
             page = await context.newPage(); // Tab 1: Company website
-            console.log('✅ Tab 1 (Website) created');
+            emitLog('Browser Tab 1 created: Company Website Scanner', "success");
 
             linkedinPage = await context.newPage(); // Tab 2: LinkedIn
-            console.log('✅ Tab 2 (LinkedIn) created');
+            emitLog('Browser Tab 2 created: LinkedIn Scanner', "success");
         } catch (pageError) {
             console.error('❌ Failed to create pages:', pageError.message);
             throw new Error('Could not create browser tabs. Browser may have been closed.');
         }
 
-        // Start screenshot streams for BOTH tabs with unique stream IDs
-        await startScreenshotStream(page, 'career-website', 2000, 'career-website');
-        await startScreenshotStream(linkedinPage, 'career-linkedin', 2000, 'career-linkedin');
+        // Start screenshot streams for BOTH tabs with unique stream IDs (500ms = 2 updates per second)
+        await startScreenshotStream(page, 'career-website', 500, 'career-website');
+        await startScreenshotStream(linkedinPage, 'career-linkedin', 500, 'career-linkedin');
         emitAutomationStatus("Dual-Tab Career Scanning Live");
 
         const SEARCH_BASE = "https://www.bing.com/search?q=";
@@ -87,13 +87,13 @@ async function runCareerAutomation() {
 
             const companyName = company.companyName;
             if (!companyName) {
-                console.log(`Skipping company: No company name found.`);
+                emitLog(`Skipping company: No company name found`, "warning");
                 continue;
             }
 
-            console.log(`\n${"=".repeat(60)}`);
-            console.log(`Processing ${companyName}`);
-            console.log(`${"=".repeat(60)}`);
+            emitLog(`════════════════════════════════════════════════════`, "info");
+            emitLog(`Processing: ${companyName}`, "processing");
+            emitLog(`════════════════════════════════════════════════════`, "info");
             emitAutomationStatus(`Dual-Tab Scanning: ${companyName}`);
 
             try {
@@ -147,7 +147,7 @@ async function runCareerAutomation() {
 
                 // Post to API if we found relevant data
                 if (allSkills.length > 0 || allEmails.length > 0) {
-                    console.log(`\n📤 Posting data for ${companyName}...`);
+                    emitLog(`Posting data to API for ${companyName}...`, "api");
 
                     const payload = {
                         companyName: company.companyName,
@@ -178,25 +178,24 @@ async function runCareerAutomation() {
 
                     try {
                         await axios.post(POST_COMPANY_URL, payload);
-                        console.log(`✅ Successfully posted update for ${companyName}`);
+                        emitLog(`Successfully posted update for ${companyName}`, "success");
                     } catch (postErr) {
-                        console.error(`❌ Error posting to API for ${companyName}:`, postErr.message);
+                        emitLog(`Error posting to API for ${companyName}: ${postErr.message}`, "error");
                     }
                 } else {
-                    console.log(`⚠️  No relevant data found for ${companyName} - skipping API post`);
+                    emitLog(`No relevant data found for ${companyName} - skipping API post`, "warning");
                 }
 
             } catch (err) {
-                console.warn(`❌ Error processing ${companyName}: ${err.message}`);
+                emitLog(`Error processing ${companyName}: ${err.message}`, "error");
             }
 
             // Wait 20 seconds before next company
-            console.log(`\n⏱️  Completed processing ${companyName}`);
-            console.log("Waiting 20 seconds before next company...\n");
+            emitLog(`Completed processing ${companyName}. Waiting 20 seconds...`, "info");
             await page.waitForTimeout(20000);
         }
 
-        console.log("Career automation completed.");
+        emitLog("Career automation completed successfully!", "success");
         emitAutomationStatus("Idle");
 
     } catch (error) {
@@ -215,12 +214,12 @@ async function runCareerAutomation() {
 // ============================================
 async function scanCompanyWebsite(page, companyName, company, SEARCH_BASE) {
     try {
-        console.log(`[WEBSITE] Starting scan for ${companyName}`);
+        emitLog(`[Website Tab] Starting career page scan for: ${companyName}`, "website");
 
         const searchQuery = encodeURIComponent(`${companyName} careers`);
         const searchUrl = `${SEARCH_BASE}${searchQuery}`;
 
-        console.log(`[WEBSITE] Searching: ${searchQuery}`);
+        emitLog(`[Website Tab] Searching Bing: "${companyName} careers"`, "website");
         await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await page.waitForTimeout(5000);
 
@@ -236,6 +235,7 @@ async function scanCompanyWebsite(page, companyName, company, SEARCH_BASE) {
             return { emails: [], keywords: [], dates: [] };
         }
 
+        emitLog(`[Website Tab] Opening career page...`, "website");
         console.log(`[WEBSITE] Navigating to: ${resultUrl.substring(0, 60)}...`);
         await page.goto(resultUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => { });
 
@@ -253,7 +253,7 @@ async function scanCompanyWebsite(page, companyName, company, SEARCH_BASE) {
         const foundEmails = bodyText.match(EMAIL_REGEX) || [];
         let allEmails = [...new Set(foundEmails)];
 
-        console.log(`[WEBSITE] Found ${matchedKeywords.length} skills, ${allEmails.length} emails on careers page`);
+        emitLog(`[Website Tab] Found ${matchedKeywords.length} skills: ${matchedKeywords.join(', ') || 'None'}`, matchedKeywords.length > 0 ? "success" : "info");
 
         // Look for Contact/About pages
         console.log("[WEBSITE] Looking for Contact/About pages...");

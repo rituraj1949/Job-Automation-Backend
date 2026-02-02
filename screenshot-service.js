@@ -6,10 +6,10 @@ const activeStreams = new Map(); // Map of streamId -> { interval, page, platfor
  * Start streaming screenshots from a Playwright page
  * @param {Page} page - Playwright page instance
  * @param {string} platform - Platform name (e.g., 'career-website', 'career-linkedin')
- * @param {number} intervalMs - Screenshot interval in milliseconds (default: 2000ms)
+ * @param {number} intervalMs - Screenshot interval in milliseconds (default: 500ms for real-time)
  * @param {string} streamId - Optional unique ID for this stream (defaults to platform)
  */
-async function startScreenshotStream(page, platform = 'naukri', intervalMs = 2000, streamId = null) {
+async function startScreenshotStream(page, platform = 'naukri', intervalMs = 500, streamId = null) {
     if (!global.io) {
         console.warn('Socket.IO not initialized. Cannot start screenshot stream.');
         return;
@@ -48,14 +48,24 @@ async function startScreenshotStream(page, platform = 'naukri', intervalMs = 200
 /**
  * Capture screenshot and emit via Socket.IO
  */
+let isCapturing = false; // Prevent concurrent captures
+
 async function captureAndEmitScreenshot(page, platform) {
+    // Skip if already capturing (frame dropping)
+    if (isCapturing) {
+        return;
+    }
+
+    isCapturing = true;
+
     try {
-        // Capture screenshot with reduced timeout for Render's free tier
+        // Fast screenshot with aggressive optimization for real-time streaming
         const screenshot = await page.screenshot({
             type: 'jpeg',
-            quality: 60, // Reduced quality for faster transmission
+            quality: 40, // Lower quality for faster transmission (was 60%)
             fullPage: false, // Only visible viewport
-            timeout: 5000 // 5 second timeout instead of 30 seconds
+            timeout: 3000, // 3 second timeout (was 5s)
+            scale: 'css' // Use CSS pixels (faster)
         });
 
         // Convert to base64
@@ -79,6 +89,8 @@ async function captureAndEmitScreenshot(page, platform) {
             console.error('Error in captureAndEmitScreenshot:', error.message);
         }
         // Skip this screenshot and try again next interval
+    } finally {
+        isCapturing = false;
     }
 }
 
@@ -132,10 +144,28 @@ function emitExtractionProgress(data) {
     }
 }
 
+/**
+ * Send log message to frontend
+ * @param {string} message - Log message
+ * @param {string} type - Log type (success, error, info, warning, processing, email, api, linkedin, website)
+ */
+function emitLog(message, type = 'info') {
+    if (global.io) {
+        global.io.emit('automation:log', {
+            message,
+            type,
+            timestamp: new Date().toLocaleTimeString()
+        });
+    }
+    // Also log to console
+    console.log(`[${type.toUpperCase()}] ${message}`);
+}
+
 module.exports = {
     startScreenshotStream,
     stopScreenshotStream,
     emitAutomationStatus,
     emitJobApplied,
-    emitExtractionProgress
+    emitExtractionProgress,
+    emitLog
 };
