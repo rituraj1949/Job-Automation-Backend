@@ -41,8 +41,11 @@ async function runCareerAutomation() {
 
         console.log(`Found ${companies.length} companies. Starting automation...`);
 
+        // Run headless in production, headed in local development
+        const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+
         browser = await chromium.launch({
-            headless: false,
+            headless: isProduction,
             args: ["--disable-blink-features=AutomationControlled"]
         });
 
