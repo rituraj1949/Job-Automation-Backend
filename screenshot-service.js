@@ -1,42 +1,48 @@
 // Screenshot streaming service for live browser view
-let screenshotInterval = null;
-let currentPage = null;
+// Support multiple concurrent streams (e.g., website tab + LinkedIn tab)
+const activeStreams = new Map(); // Map of streamId -> { interval, page, platform }
 
 /**
  * Start streaming screenshots from a Playwright page
  * @param {Page} page - Playwright page instance
- * @param {string} platform - Platform name (e.g., 'naukri', 'linkedin')
- * @param {number} intervalMs - Screenshot interval in milliseconds (default: 1000ms)
+ * @param {string} platform - Platform name (e.g., 'career-website', 'career-linkedin')
+ * @param {number} intervalMs - Screenshot interval in milliseconds (default: 2000ms)
+ * @param {string} streamId - Optional unique ID for this stream (defaults to platform)
  */
-async function startScreenshotStream(page, platform = 'naukri', intervalMs = 1000) {
+async function startScreenshotStream(page, platform = 'naukri', intervalMs = 2000, streamId = null) {
     if (!global.io) {
         console.warn('Socket.IO not initialized. Cannot start screenshot stream.');
         return;
     }
 
-    // Stop any existing stream
-    stopScreenshotStream();
+    const id = streamId || platform;
 
-    currentPage = page;
-    console.log(`Starting screenshot stream for ${platform} (every ${intervalMs}ms)`);
+    // Stop existing stream with same ID if any
+    if (activeStreams.has(id)) {
+        stopScreenshotStream(id);
+    }
+
+    console.log(`Starting screenshot stream: ${id} (${platform}) - every ${intervalMs}ms`);
 
     // Emit initial screenshot immediately
     await captureAndEmitScreenshot(page, platform);
 
     // Set up interval for continuous screenshots
-    screenshotInterval = setInterval(async () => {
+    const interval = setInterval(async () => {
         try {
-            if (currentPage && !currentPage.isClosed()) {
-                await captureAndEmitScreenshot(currentPage, platform);
+            if (page && !page.isClosed()) {
+                await captureAndEmitScreenshot(page, platform);
             } else {
-                console.log('Page closed, stopping screenshot stream');
-                stopScreenshotStream();
+                console.log(`Page closed for stream ${id}, stopping...`);
+                stopScreenshotStream(id);
             }
         } catch (error) {
-            console.error('Error capturing screenshot:', error.message);
-            // Don't stop on error, just log it
+            // Silently skip errors
         }
     }, intervalMs);
+
+    // Store stream info
+    activeStreams.set(id, { interval, page, platform });
 }
 
 /**
@@ -44,11 +50,12 @@ async function startScreenshotStream(page, platform = 'naukri', intervalMs = 100
  */
 async function captureAndEmitScreenshot(page, platform) {
     try {
-        // Capture screenshot as base64
+        // Capture screenshot with reduced timeout for Render's free tier
         const screenshot = await page.screenshot({
             type: 'jpeg',
-            quality: 70, // Reduce quality for faster transmission
-            fullPage: false // Only visible viewport
+            quality: 60, // Reduced quality for faster transmission
+            fullPage: false, // Only visible viewport
+            timeout: 5000 // 5 second timeout instead of 30 seconds
         });
 
         // Convert to base64
@@ -67,30 +74,34 @@ async function captureAndEmitScreenshot(page, platform) {
             timestamp: new Date().toISOString()
         });
     } catch (error) {
-        console.error('Error in captureAndEmitScreenshot:', error.message);
+        // Silently handle timeout errors - don't flood logs
+        if (!error.message.includes('Timeout')) {
+            console.error('Error in captureAndEmitScreenshot:', error.message);
+        }
+        // Skip this screenshot and try again next interval
     }
 }
 
 /**
  * Stop screenshot streaming
+ * @param {string} streamId - Optional ID for specific stream to stop (stops all if not provided)
  */
-function stopScreenshotStream() {
-    if (screenshotInterval) {
-        clearInterval(screenshotInterval);
-        screenshotInterval = null;
-        console.log('Screenshot stream stopped');
-    }
-    currentPage = null;
-}
-
-/**
- * Update screenshot interval
- */
-function updateScreenshotInterval(intervalMs) {
-    if (screenshotInterval && currentPage) {
-        const platform = 'naukri'; // You can track this if needed
-        stopScreenshotStream();
-        startScreenshotStream(currentPage, platform, intervalMs);
+function stopScreenshotStream(streamId = null) {
+    if (streamId) {
+        // Stop specific stream
+        const stream = activeStreams.get(streamId);
+        if (stream) {
+            clearInterval(stream.interval);
+            activeStreams.delete(streamId);
+            console.log(`Screenshot stream stopped: ${streamId}`);
+        }
+    } else {
+        // Stop all streams
+        for (const [id, stream] of activeStreams.entries()) {
+            clearInterval(stream.interval);
+            console.log(`Screenshot stream stopped: ${id}`);
+        }
+        activeStreams.clear();
     }
 }
 
@@ -124,7 +135,6 @@ function emitExtractionProgress(data) {
 module.exports = {
     startScreenshotStream,
     stopScreenshotStream,
-    updateScreenshotInterval,
     emitAutomationStatus,
     emitJobApplied,
     emitExtractionProgress

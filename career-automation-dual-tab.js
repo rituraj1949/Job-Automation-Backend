@@ -66,7 +66,9 @@ async function runCareerAutomation() {
             throw new Error('Could not create browser tabs. Browser may have been closed.');
         }
 
-        await startScreenshotStream(page, 'career-automation', 1000);
+        // Start screenshot streams for BOTH tabs with unique stream IDs
+        await startScreenshotStream(page, 'career-website', 2000, 'career-website');
+        await startScreenshotStream(linkedinPage, 'career-linkedin', 2000, 'career-linkedin');
         emitAutomationStatus("Dual-Tab Career Scanning Live");
 
         const SEARCH_BASE = "https://www.bing.com/search?q=";
