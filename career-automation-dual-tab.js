@@ -27,7 +27,6 @@ async function runCareerAutomation() {
     let context = null;
     let page = null;
     let linkedinPage = null;
-    let loginPage = null;
 
     try {
         console.log("Fetching companies list...");
@@ -62,29 +61,22 @@ async function runCareerAutomation() {
             args: ["--disable-blink-features=AutomationControlled"]
         });
 
-        // Create THREE tabs with error handling
+        // Create TWO tabs with error handling
         try {
             page = await context.newPage(); // Tab 1: Company website
             emitLog('Browser Tab 1 created: Company Website Scanner', "success");
 
             linkedinPage = await context.newPage(); // Tab 2: LinkedIn Search
             emitLog('Browser Tab 2 created: LinkedIn Scanner', "success");
-
-            loginPage = await context.newPage(); // Tab 3: LinkedIn Session / Manual Login
-            emitLog('Browser Tab 3 created: LinkedIn Session (Login if needed)', "success");
-
-            // Navigate Tab 3 to LinkedIn for manual login/session check
-            await loginPage.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded' }).catch(() => { });
         } catch (pageError) {
             console.error('❌ Failed to create pages:', pageError.message);
             throw new Error('Could not create browser tabs. Session folder might be in use by another process.');
         }
 
-        // Start screenshot streams for ALL tabs
+        // Start screenshot streams for both tabs
         await startScreenshotStream(page, 'career-website', 500, 'career-website');
         await startScreenshotStream(linkedinPage, 'career-linkedin', 500, 'career-linkedin');
-        await startScreenshotStream(loginPage, 'linkedin-login', 500, 'linkedin-login');
-        emitAutomationStatus("Dual-Tab Automation + LinkedIn Session Active");
+        emitAutomationStatus("Dual-Tab Automation Active (Session Loaded)");
 
         const SEARCH_BASE = "https://www.bing.com/search?q=";
 
@@ -218,7 +210,6 @@ async function runCareerAutomation() {
     } finally {
         isRunning = false;
         stopScreenshotStream();
-        if (loginPage) await loginPage.close().catch(() => { });
         if (linkedinPage) await linkedinPage.close().catch(() => { });
         if (page) await page.close().catch(() => { });
         if (context) await context.close().catch(() => { });
