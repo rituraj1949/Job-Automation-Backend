@@ -2,6 +2,8 @@ const { chromium } = require("playwright-extra");
 const stealth = require("puppeteer-extra-plugin-stealth")();
 chromium.use(stealth);
 const axios = require("axios");
+const path = require("path");
+const fs = require("fs");
 const { startScreenshotStream, stopScreenshotStream, emitAutomationStatus, emitLog } = require('./screenshot-service');
 
 const FETCH_COMPANIES_URL = "https://backend-emails-elxz.onrender.com/api/companies";
@@ -22,8 +24,10 @@ async function runCareerAutomation() {
 
     isRunning = true;
     let browser = null;
+    let context = null;
     let page = null;
     let linkedinPage = null;
+    let loginPage = null;
 
     try {
         console.log("Fetching companies list...");
@@ -41,35 +45,46 @@ async function runCareerAutomation() {
 
         emitLog(`Found ${companies.length} companies. Starting dual-tab automation...`, "success");
 
+        // Set up persistent session directory
+        const userDataDir = path.join(__dirname, 'linkedin_session');
+        if (!fs.existsSync(userDataDir)) {
+            fs.mkdirSync(userDataDir, { recursive: true });
+        }
+
         // Run headless in production, headed in local development
         const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
-        browser = await chromium.launch({
+        // Use LaunchPersistentContext to store session (cookies, login, etc)
+        context = await chromium.launchPersistentContext(userDataDir, {
             headless: isProduction,
+            viewport: { width: 1280, height: 720 },
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
             args: ["--disable-blink-features=AutomationControlled"]
         });
 
-        const context = await browser.newContext({
-            viewport: { width: 1280, height: 720 },
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-        });
-
-        // Create TWO tabs with error handling
+        // Create THREE tabs with error handling
         try {
             page = await context.newPage(); // Tab 1: Company website
             emitLog('Browser Tab 1 created: Company Website Scanner', "success");
 
-            linkedinPage = await context.newPage(); // Tab 2: LinkedIn
+            linkedinPage = await context.newPage(); // Tab 2: LinkedIn Search
             emitLog('Browser Tab 2 created: LinkedIn Scanner', "success");
+
+            loginPage = await context.newPage(); // Tab 3: LinkedIn Session / Manual Login
+            emitLog('Browser Tab 3 created: LinkedIn Session (Login if needed)', "success");
+
+            // Navigate Tab 3 to LinkedIn for manual login/session check
+            await loginPage.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded' }).catch(() => { });
         } catch (pageError) {
             console.error('❌ Failed to create pages:', pageError.message);
-            throw new Error('Could not create browser tabs. Browser may have been closed.');
+            throw new Error('Could not create browser tabs. Session folder might be in use by another process.');
         }
 
-        // Start screenshot streams for BOTH tabs with unique stream IDs (500ms = 2 updates per second)
+        // Start screenshot streams for ALL tabs
         await startScreenshotStream(page, 'career-website', 500, 'career-website');
         await startScreenshotStream(linkedinPage, 'career-linkedin', 500, 'career-linkedin');
-        emitAutomationStatus("Dual-Tab Career Scanning Live");
+        await startScreenshotStream(loginPage, 'linkedin-login', 500, 'linkedin-login');
+        emitAutomationStatus("Dual-Tab Automation + LinkedIn Session Active");
 
         const SEARCH_BASE = "https://www.bing.com/search?q=";
 
@@ -203,9 +218,11 @@ async function runCareerAutomation() {
     } finally {
         isRunning = false;
         stopScreenshotStream();
-        if (linkedinPage) await linkedinPage.close();
-        if (page) await page.close();
-        if (browser) await browser.close();
+        if (loginPage) await loginPage.close().catch(() => { });
+        if (linkedinPage) await linkedinPage.close().catch(() => { });
+        if (page) await page.close().catch(() => { });
+        if (context) await context.close().catch(() => { });
+        if (browser) await browser.close().catch(() => { });
     }
 }
 
