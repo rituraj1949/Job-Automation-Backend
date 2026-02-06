@@ -2,6 +2,7 @@ const { chromium } = require("playwright-extra");
 const stealth = require("puppeteer-extra-plugin-stealth")();
 chromium.use(stealth);
 const cron = require("node-cron");
+const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs").promises;
 
@@ -9,7 +10,9 @@ const fs = require("fs").promises;
 const CV_PROFILE_PATH = path.join(__dirname, "cv-profile.json");
 
 let browser = null;
+let context = null;
 let page = null;
+let browserMode = null; // "cdp" | "persistent" | "launch"
 let isRunning = false;
 let appliedJobs = [];
 let cycleInProgress = false;
@@ -38,18 +41,21 @@ const SORT_BY = "date"; // Sort by date
 const PRE_FILTERED_SEARCH_URL =
   "https://www.naukri.com/full-stack-developer-gen-ai-chatbot-natural-language-processing-artificial-intelligence-jobs?k=full%20stack%20developer%2C%20gen%20ai%2C%20chatbot%2C%20natural%20language%20processing%2C%20artificial%20intelligence&nignbevent_src=jobsearchDeskGNB&experience=5&ctcFilter=15to25&ctcFilter=25to50&jobAge=1";
 
-// LinkedIn Leads API (always-save): POST /api/linkedin-leads
+// Naukri Jobs API: POST /api/naukri-jobs
 // Base: https://backend-emails-elxz.onrender.com
-// Required: companyName (we send "Unknown" when empty). Optional: jobTitle, city, jobUrl, emails, skills, source, applied.
-// If the server sets LEADS_API_KEY, send it: X-API-Key or Authorization: Bearer. Suggested: LEADS_API_KEY=naukri-leads
+// If the server sets LEADS_API_KEY, send it: X-API-Key or Authorization: Bearer.
 const LEADS_API_URL =
-  "https://backend-emails-elxz.onrender.com/api/linkedin-leads";
+  "https://backend-emails-elxz.onrender.com/api/naukri-jobs";
 const LEADS_API_KEY = process.env.LEADS_API_KEY || "";
 const LEADS_API_AUTH = (
   process.env.LEADS_API_AUTH || "X-API-Key"
 ).toLowerCase(); // "X-API-Key" or "bearer"
 // Optional: PATCH/PUT endpoint to set applied. Uses /api/linkedin-leads/applied endpoint.
 const LEADS_UPDATE_API_URL = process.env.LEADS_UPDATE_API_URL || "https://backend-emails-elxz.onrender.com/api/linkedin-leads/applied";
+
+const TOP_JOBS_CACHE_PATH = path.join(__dirname, "naukri-top-jobs.json");
+const TOP_JOBS_LIMIT_DEFAULT = 40;
+const EXTRACT_ONLY_MIN_SKILL_MATCHES = 2;
 
 // --- Profile (cv-profile.json): skills and form-fill. No PDF parsing. ---
 const NOTICE_OPTS = [
@@ -83,8 +89,37 @@ const EXCLUDED_COMPANIES = [
   "HCLTech",
   "Cognizant",
   "IBM",
+  "Tata Technologies",
+  "Google",
+  "Microsoft",
+  "Amazon",
+  "Facebook",
+  "Meta",
+  "Apple",
   "Oracle",
   "Accenture",
+  "Mastercard",
+  "Cisco",
+  "Wells Fargo",
+  "Tiger Analytics",
+  "Happiest Minds Technologies",
+  "Pepsico",
+  "Dell",
+  "LTI",
+  "Larsen & Toubro Infotech",
+  "Mphasis",
+  "UST",
+  "Virtusa",
+  "Hexaware",
+  "Birlasoft",
+  "Sonata Software",
+  "Deloitte Consulting",
+  "KPMG",
+  "Mindtree",
+  "Persistent Systems",
+  "Syntel",
+  "Sutherland",
+  "NIIT Technologies",
   "Genpact",
   "Optum",
   "PwC",
@@ -92,18 +127,29 @@ const EXCLUDED_COMPANIES = [
   "ITC Infotech",
   "Nagarro",
   "EY",
-  "Ernst & Young",
+  "Ernst & Young"
 ];
+
+function normalizeCompanyName(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // Check if a job should be skipped based on title, company, or description
 function shouldSkipJob(jobTitle, companyName, jdText = "") {
   const title = (jobTitle || "").toLowerCase();
-  const company = (companyName || "").toLowerCase();
+  const company = normalizeCompanyName(companyName);
   const description = (jdText || "").toLowerCase();
 
   // Check excluded companies
   for (const excludedCompany of EXCLUDED_COMPANIES) {
-    if (company.includes(excludedCompany.toLowerCase())) {
+    const normalizedExcluded = normalizeCompanyName(excludedCompany);
+    if (normalizedExcluded && company.includes(normalizedExcluded)) {
       return { skip: true, reason: `Excluded Company: ${excludedCompany}` };
     }
   }
@@ -242,16 +288,21 @@ async function loadCVDetails() {
 }
 
 // --- Relevance: Check job title and skills against our skill set, exclude Java/.NET/PHP/Flutter ---
-function isRelevantJob(job, cvSkills, cvDetails = {}) {
-  // Combine job title and skills array for matching
+// minMatches defaults to 3 to keep apply threshold at 3+ matches.
+function isRelevantJob(job, cvSkills, cvDetails = {}, extraText = "", minMatches = 3) {
+  // Combine job title, skills array, and optional extra text (JD) for matching
   const jobText = (
     (job.jobTitle || "") +
     " " +
-    (Array.isArray(job.skills) ? job.skills.join(" ") : "")
+    (Array.isArray(job.skills) ? job.skills.join(" ") : "") +
+    " " +
+    (extraText || "")
   ).toLowerCase();
 
   console.log(`[Job Relevance] Checking job: "${job.jobTitle}"`);
-  console.log(`[Job Relevance] Job text: "${jobText}"`);
+  const preview =
+    jobText.length > 200 ? `${jobText.substring(0, 200)}...` : jobText;
+  console.log(`[Job Relevance] Job text: "${preview}"`);
 
   // Exclude jobs with unwanted technologies - STRICT CHECKING
   const excludedPatterns =
@@ -419,7 +470,7 @@ function isRelevantJob(job, cvSkills, cvDetails = {}) {
   ];
 
   // Check if job text contains any of our skills
-  let matchCount = 0;
+  const matchedSkills = new Set();
 
   for (const keyword of skillKeywords) {
     // Check if keyword appears in job text (case-insensitive, word boundary)
@@ -450,13 +501,22 @@ function isRelevantJob(job, cvSkills, cvDetails = {}) {
       });
 
       if (isInCvSkills) {
-        matchCount++;
+        matchedSkills.add(keywordLower);
       }
     }
   }
 
-  // Require at least 2 skill matches to apply
-  return matchCount >= 2;
+  const threshold = Number.isFinite(minMatches) ? Math.max(1, minMatches) : 3;
+  job.matchedSkills = Array.from(matchedSkills);
+  return matchedSkills.size >= threshold;
+}
+
+function logMatchedSkills(job, label = "Match") {
+  const list = Array.isArray(job.matchedSkills) ? job.matchedSkills : [];
+  const redDot = "\x1b[31m\u25CF\x1b[0m";
+  console.log(
+    `[${label}] ${redDot} Skills matched (${list.length}): ${list.join(", ") || "None"}`
+  );
 }
 
 // Perform login on Naukri.com
@@ -598,79 +658,347 @@ async function performLogin(page) {
 }
 
 // Initialize browser and navigate to Naukri.com
-async function initializeBrowser() {
+function isProfileLockError(err) {
+  const msg = (err && err.message) ? err.message : "";
+  return (
+    /user data directory is already in use/i.test(msg) ||
+    /profile.*in use/i.test(msg) ||
+    /profile error/i.test(msg) ||
+    /Target page, context or browser has been closed/i.test(msg) ||
+    /DevToolsActivePort file doesn'?t exist/i.test(msg)
+  );
+}
+
+// Toggle resume headline by adding/removing a trailing dot
+async function updateResumeHeadline(page) {
+  const profileUrl =
+    "https://www.naukri.com/mnjuser/profile?id=&altresid&action=modalOpen";
   try {
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+    console.log("[Profile] Opening resume headline modal...");
+    await page.goto(profileUrl, { waitUntil: "domcontentloaded", timeout: 25000 });
+    await page.waitForTimeout(2000);
+
+    // If redirected to login, skip update (do not attempt login)
+    if (page.url().includes("nlogin") || (await page.$('input[type="password"]'))) {
+      console.log("[Profile] Login page detected. Skipping resume headline update (login disabled).");
+      return;
+    }
+
+    // Try the resume headline widget first
+    const resumeContainer =
+      (await page.$("#lazyResumeHead .resumeHeadline")) ||
+      (await page.$("#lazyResumeHead"));
+
+    const editSelectors = [
+      "#lazyResumeHead .edit.icon",
+      "#lazyResumeHead .edit",
+      ".resumeHeadline .edit.icon",
+      "span.edit.icon",
+      ".edit.icon",
+    ];
+    for (const sel of editSelectors) {
+      const btn = await page.$(sel);
+      if (btn && (await btn.isVisible())) {
+        console.log(`[Profile] Clicking edit icon: ${sel}`);
+        await btn.click();
+        await page.waitForTimeout(1200);
+        break;
+      }
+    }
+
+    const inputSelectors = [
+      "#resumeHeadlineTxt",
+      'textarea[name="resumeHeadlineForm"] #resumeHeadlineTxt',
+      'form[name="resumeHeadlineForm"] textarea#resumeHeadlineTxt',
+      "#lazyResumeHead textarea",
+      "#lazyResumeHead input",
+      '#lazyResumeHead [contenteditable="true"]',
+      'textarea[name*="resumeHeadline"]',
+      'textarea[placeholder*="Resume Headline"]',
+      'input[name*="resumeHeadline"]',
+      'input[placeholder*="Resume Headline"]',
+      '[contenteditable="true"][data-placeholder*="Resume"]',
+    ];
+
+    let headlineEl = null;
+    for (const sel of inputSelectors) {
+      try {
+        await page.waitForSelector(sel, { state: "visible", timeout: 5000 });
+        const el = await page.$(sel);
+        if (el && (await el.isVisible())) {
+          console.log(`[Profile] Found headline input: ${sel}`);
+          headlineEl = el;
+          break;
+        }
+      } catch (_) {
+        // keep trying other selectors
+      }
+    }
+
+    let currentText = "";
+    if (headlineEl) {
+      currentText = await page.evaluate((el) => {
+        if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") return el.value || "";
+        return el.innerText || el.textContent || "";
+      }, headlineEl);
+    } else if (resumeContainer) {
+      currentText = await page.evaluate((el) => {
+        const prefill = el.querySelector(".prefill");
+        return prefill ? (prefill.innerText || prefill.textContent || "") : "";
+      }, resumeContainer);
+    }
+    console.log(`[Profile] Current headline: "${currentText}"`);
+
+    if (!headlineEl) {
+      console.warn("[Profile] Resume headline input not found.");
+      return;
+    }
+
+    const trimmed = (currentText || "").trim();
+    const nextText = trimmed.endsWith(".")
+      ? trimmed.replace(/\.+$/, "")
+      : `${trimmed}${trimmed ? "." : "."}`;
+    console.log(`[Profile] Updated headline: "${nextText}"`);
+
+    // Focus and update value
+    await headlineEl.click({ timeout: 2000 }).catch(() => { });
+    await page.waitForTimeout(300);
+
+    const tagName = await headlineEl.evaluate((el) => el.tagName);
+    if (tagName === "TEXTAREA" || tagName === "INPUT") {
+      await headlineEl.fill("");
+      await headlineEl.fill(nextText);
+    } else {
+      await headlineEl.evaluate((el, val) => {
+        el.innerText = val;
+      }, nextText);
+    }
+
+    // Trigger input/change/blur so Naukri detects change
+    await headlineEl.evaluate((el) => {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.dispatchEvent(new Event("blur", { bubbles: true }));
+    });
+
+    // Verify updated text
+    const verifyText = await headlineEl.evaluate((el) => {
+      if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") return el.value || "";
+      return el.innerText || el.textContent || "";
+    });
+    console.log(`[Profile] After edit: "${verifyText}"`);
+
+    // Give time before saving so UI updates
+    await page.waitForTimeout(1500);
+
+    const saveSelectors = [
+      ".row.form-actions button[type=\"submit\"]",
+      ".row.form-actions .btn-dark-ot",
+      'button:has-text("Save")',
+      'button:has-text("Update")',
+      'button[type="submit"]',
+      '[data-ga-event*="save"]',
+    ];
+
+    for (const sel of saveSelectors) {
+      const btn = await page.$(sel);
+      if (btn && (await btn.isVisible())) {
+        console.log(`[Profile] Clicking Save: ${sel}`);
+        await btn.click();
+        await page.waitForTimeout(1500);
+        console.log("[Profile] Resume headline updated.");
+        return;
+      }
+    }
+
+    console.warn("[Profile] Save button not found after editing headline.");
+  } catch (e) {
+    console.warn("[Profile] Failed to update resume headline:", e.message);
+  }
+}
+
+async function tryAttachOverCDP(cdpUrl, viewport, userAgent) {
+  try {
+    const b = await chromium.connectOverCDP(cdpUrl);
+    const ctx = b.contexts()[0] || (await b.newContext({ viewport, userAgent }));
+    const pg = ctx.pages()[0] || (await ctx.newPage());
+    return { browser: b, context: ctx, page: pg };
+  } catch (_) {
+    return null;
+  }
+}
+
+function launchChromeForCDP(chromePath, userDataDir, profileDir, port) {
+  if (process.platform !== "win32") return false;
+  try {
+    const args = [
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${userDataDir}`,
+      `--profile-directory=${profileDir}`,
+      "--remote-allow-origins=*",
+      "--no-first-run",
+      "--no-default-browser-check",
+    ];
+    const child = spawn(chromePath, args, {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function waitForCDP(cdpUrl, viewport, userAgent, timeoutMs = 10000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = await tryAttachOverCDP(cdpUrl, viewport, userAgent);
+    if (result) return result;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return null;
+}
+
+// Initialize browser and navigate to Naukri.com
+async function initializeBrowser(attempt = 1) {
+  const isProduction =
+    process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+  const useSystemChrome =
+    !isProduction && process.env.NAUKRI_USE_SYSTEM_CHROME !== "0";
+  const forceCDP = !isProduction && process.env.NAUKRI_USE_CDP === "1";
+  const waitForChromeMs = Number(
+    process.env.NAUKRI_WAIT_FOR_CHROME_MS || 60000
+  );
+
+  try {
 
     // Set Playwright path for Render
     if (isProduction) {
       process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
     }
 
-    // Dynamic Cloudflare Proxy Configuration
-    let proxyUrl = process.env.PROXY_SERVER || 'http://user:pass@flows-delight-herself-houston.trycloudflare.com:443';
+    // Optional proxy (use only if PROXY_SERVER is set)
+    const proxyUrlRaw = process.env.PROXY_SERVER || "";
+    let proxyUrl = proxyUrlRaw;
+    const useProxy = Boolean(proxyUrl);
 
     // Auto-fix protocol if using port 443 on a Cloudflare tunnel (must use HTTPS for TLS termination)
-    if (proxyUrl.includes('trycloudflare.com') && proxyUrl.includes(':443') && proxyUrl.startsWith('http://')) {
-      proxyUrl = proxyUrl.replace('http://', 'https://');
+    if (useProxy && proxyUrl.includes("trycloudflare.com") && proxyUrl.includes(":443") && proxyUrl.startsWith("http://")) {
+      proxyUrl = proxyUrl.replace("http://", "https://");
     }
 
-    console.log(`Launching browser with proxy: ${proxyUrl}`);
+    const launchArgs = isProduction
+      ? ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+      : [];
 
-    browser = await chromium.launch({
+    const launchOptions = {
       headless: isProduction ? true : false,
       slowMo: isProduction ? 0 : 500,
-      args: isProduction ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : [],
-      proxy: {
-        server: proxyUrl
-      }
-    });
+      args: launchArgs,
+    };
 
-    const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    });
-
-    page = await context.newPage();
-
-    // Start screenshot streaming for live view on frontend
-    try {
-      const { startScreenshotStream } = require('./screenshot-service');
-      await startScreenshotStream(page, 'naukri', 1000);
-      console.log("📸 Screenshot streaming started - check frontend for live view!");
-    } catch (err) {
-      console.warn("Screenshot streaming not available:", err.message);
-    }
-
-    // Human-like Navigation Flow: Google -> Naukri
-    console.log("Navigating to Google...");
-    await page.goto("https://www.google.com", { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(2000);
-
-    console.log("Searching for 'Naukri'...");
-    const searchInput = await page.$('textarea[name="q"]') || await page.$('input[name="q"]');
-    if (searchInput) {
-      await searchInput.fill("Naukri");
-      await page.keyboard.press("Enter");
-    }
-
-    await page.waitForNavigation({ waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(2000);
-
-    console.log("Clicking on Naukri link...");
-    // Find link containing naukri.com
-    const naukriLink = await page.$('a[href*="naukri.com"]');
-    if (naukriLink) {
-      await naukriLink.click();
+    if (useProxy) {
+      console.log(`Launching browser with proxy: ${proxyUrl}`);
+      launchOptions.proxy = { server: proxyUrl };
     } else {
-      console.log("Naukri link not found in search, falling back to direct navigation...");
-      await page.goto("https://www.naukri.com");
+      console.log("Launching browser without proxy");
     }
 
-    // Wait for page to load
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(4000);
+    const viewport = { width: 1920, height: 1080 };
+    const userAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    const cdpUrl = process.env.NAUKRI_CDP_URL || "http://127.0.0.1:9222";
+    if (forceCDP) {
+      const cdpResult = await tryAttachOverCDP(cdpUrl, viewport, userAgent);
+      if (cdpResult) {
+        console.log(`[NAUKRI] Attached to Chrome over CDP: ${cdpUrl}`);
+        browser = cdpResult.browser;
+        context = cdpResult.context;
+        page = cdpResult.page;
+        browserMode = "cdp";
+      } else {
+        throw new Error(
+          `CDP attach failed at ${cdpUrl}. Start Chrome with --remote-debugging-port=9222 and retry.`
+        );
+      }
+    }
+
+    if (!browser && useSystemChrome) {
+      const chromePath =
+        process.env.NAUKRI_CHROME_PATH ||
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+      const userDataDir =
+        process.env.NAUKRI_USER_DATA_DIR ||
+        path.join(__dirname, ".chrome-naukri");
+      const profileDir = process.env.NAUKRI_PROFILE_DIR || "Default";
+
+      console.log(
+        `Launching system Chrome profile: ${profileDir} | ${chromePath} | UserData: ${userDataDir}`
+      );
+
+      if (!browser) {
+        const startWait = Date.now();
+        let lastErr = null;
+        while (!browser && Date.now() - startWait < waitForChromeMs) {
+          try {
+            context = await chromium.launchPersistentContext(userDataDir, {
+              ...launchOptions,
+              executablePath: chromePath,
+              args: [...launchArgs, `--profile-directory=${profileDir}`],
+              viewport,
+              userAgent,
+            });
+            browser = context.browser();
+            browserMode = "persistent";
+            page = context.pages()[0] || (await context.newPage());
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (!isProfileLockError(err)) throw err;
+            console.log(
+              "Chrome profile is in use. Please close Chrome to continue... (waiting)"
+            );
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+        }
+        if (!browser && lastErr) throw lastErr;
+      }
+    } else if (!browser) {
+      browser = await chromium.launch(launchOptions);
+      browserMode = "launch";
+      context = await browser.newContext({
+        viewport,
+        userAgent,
+      });
+      page = await context.newPage();
+    }
+
+    // Start screenshot streaming for live view on frontend (optional)
+    const enableNaukriScreenshots = process.env.NAUKRI_SCREENSHOT === "1";
+    if (enableNaukriScreenshots) {
+      try {
+        const { startScreenshotStream } = require("./screenshot-service");
+        await startScreenshotStream(page, "naukri", 1000);
+        console.log(
+          "Screenshot streaming started - check frontend for live view!"
+        );
+      } catch (err) {
+        console.warn("Screenshot streaming not available:", err.message);
+      }
+    }
+
+    // Update resume headline before starting
+    await updateResumeHeadline(page);
+
+    // Go directly to the pre-selected Naukri URL (skip Google)
+    console.log("Navigating to pre-selected Naukri URL...");
+    await page.goto(PRE_FILTERED_SEARCH_URL, {
+      waitUntil: "domcontentloaded",
+      timeout: 25000,
+    });
+    await page.waitForTimeout(3000);
 
     // Scroll to simulate human behavior
     console.log("scrolling page...");
@@ -704,12 +1032,18 @@ async function initializeBrowser() {
       // Ignore popup errors
     }
 
-    // Auto-login with credentials
-    await performLogin(page);
+    // Login disabled - proceed without attempting login
+    console.log("Login disabled; opening pre-selected Naukri URL directly.");
 
     console.log("Browser initialized successfully");
     return true;
   } catch (error) {
+    if (isProfileLockError(error)) {
+      console.warn(
+        "Chrome profile is in use. To keep Chrome open, start it with --remote-debugging-port=9222 and retry."
+      );
+    }
+
     console.error("Error initializing browser:", error);
     throw error;
   }
@@ -1278,6 +1612,21 @@ async function extractJobsFromPage() {
       const n = el.querySelector(sel);
       return n ? n.href || "" : "";
     };
+    const parseSkillsText = (raw) => {
+      const cleaned = (raw || "").replace(/\s+/g, " ").trim();
+      if (!cleaned) return [];
+      if (/[,\|\u2022]/.test(cleaned)) {
+        return cleaned
+          .split(/[,\|\u2022]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      if (/\s/.test(cleaned)) {
+        return cleaned.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+      }
+      const parts = cleaned.match(/[A-Z]{2,}(?=[A-Z][a-z]+|[0-9]|$)|[A-Z]?[a-z]+(?:\.js)?/g);
+      return parts && parts.length ? parts.map((s) => s.trim()).filter(Boolean) : [cleaned];
+    };
     // Try Naukri's current and legacy card selectors (cust-job-tuple, sjw__tuple are used on list view)
     let cards = document.querySelectorAll(
       'div.cust-job-tuple, [class*="cust-job-tuple"], [class*="sjw__tuple"], ' +
@@ -1347,12 +1696,17 @@ async function extractJobsFromPage() {
             .filter(Boolean);
       }
       const tagItems = card.querySelectorAll(
-        "ul.tags li, ul.tag-list li, .tags span"
+        "ul.tags li, ul.tag-list li, ul.tags-gt li, .tags-gt li, .tag-li, .tags span, [class*='chip'], [class*='key-skill'] a, [class*='key-skill'] span"
       );
       if (tagItems.length)
         skills = Array.from(tagItems)
           .map((e) => e.textContent.trim())
           .filter(Boolean);
+      if (skills.length === 1) {
+        const expanded = parseSkillsText(skills[0]);
+        if (expanded.length > 1) skills = expanded;
+      }
+      skills = Array.from(new Set(skills.filter(Boolean)));
       const posted =
         getText(card, "span.posted") ||
         getText(card, '[class*="posted"]') ||
@@ -1431,27 +1785,67 @@ async function extractEmailsFromJobDetail(page, jobUrl) {
 
 // Build API payload from extracted job (linkedin-leads format). emails only when found in job desc. companyName never empty so API always saves.
 function buildLeadsPayload(extracted) {
+  const norm = (v) => (v && String(v).trim() ? String(v).trim() : null);
+  const normalizeSkills = (skills) => {
+    if (!Array.isArray(skills) || skills.length === 0) return null;
+    const cleaned = skills
+      .map((s) => String(s || "").trim())
+      .filter(Boolean);
+    if (!cleaned.length) return null;
+    return [...new Set(cleaned)];
+  };
   return {
-    companyName:
-      extracted.companyName && String(extracted.companyName).trim()
-        ? String(extracted.companyName).trim()
-        : "Unknown",
-    jobTitle: extracted.jobTitle || "",
-    city: extracted.city || "",
-    HrName: "",
+    companyName: norm(extracted.companyName),
+    jobTitle: norm(extracted.jobTitle),
+    city: norm(extracted.city),
+    HrName: null,
     emails:
       Array.isArray(extracted.emails) && extracted.emails.length
         ? extracted.emails
         : [],
-    jobUrl: extracted.jobUrl || "",
-    salary: extracted.salary || "",
-    experience: extracted.experience || "",
-    companyWebsite: "",
-    skills: Array.isArray(extracted.skills) ? extracted.skills : [],
-    source: "Naukri",
+    jobUrl: norm(extracted.jobUrl),
+    salary: norm(extracted.salary),
+    experience: norm(extracted.experience),
+    companyWebsite: norm(extracted.companyWebsite),
+    skills: normalizeSkills(extracted.skills) || [],
+    source: norm(extracted.source) || "Naukri",
     applied: !!extracted.applied,
     timestamp: new Date().toISOString(),
   };
+}
+
+function getTopJobsLimit() {
+  const raw = Number(process.env.TOP_JOBS_LIMIT || TOP_JOBS_LIMIT_DEFAULT);
+  if (Number.isNaN(raw)) return TOP_JOBS_LIMIT_DEFAULT;
+  return Math.max(30, Math.min(50, raw));
+}
+
+function selectTopJobsBySkillMatch(jobs, limit) {
+  const list = Array.isArray(jobs) ? jobs.slice() : [];
+  list.sort((a, b) => {
+    const aCount = Number(a.matchCount || (a.matchedSkills || []).length || 0);
+    const bCount = Number(b.matchCount || (b.matchedSkills || []).length || 0);
+    if (bCount !== aCount) return bCount - aCount;
+    return (b.jobTitle || "").localeCompare(a.jobTitle || "");
+  });
+  return list.slice(0, limit);
+}
+
+async function saveTopJobsCache(data) {
+  try {
+    await fs.writeFile(TOP_JOBS_CACHE_PATH, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.warn(`[Top-Jobs] Failed to save cache: ${e.message}`);
+  }
+}
+
+async function clearTopJobsCache() {
+  try {
+    await fs.writeFile(TOP_JOBS_CACHE_PATH, JSON.stringify({}, null, 2));
+    console.log("[Top-Jobs] Cleared cached top jobs.");
+  } catch (e) {
+    // Ignore if file doesn't exist or write fails
+  }
 }
 
 // POST one job to the leads API. When LEADS_API_KEY is set: X-API-Key (default) or Authorization: Bearer (LEADS_API_AUTH=bearer).
@@ -1497,45 +1891,51 @@ async function postJobToLeadsApi(payload) {
 
 let _updateLeadSkippedLogged = false;
 // PATCH/PUT to update lead's applied flag. Uses LEADS_UPDATE_API_URL if set, otherwise falls back to LEADS_API_URL.
+// Update "applied" status back to the API
+// Uses the same /api/naukri-jobs endpoint (upsert based on jobUrl)
 async function updateLeadApplied(job, applied) {
-  // Use the update URL if set, otherwise fallback to main API URL
-  const apiUrl = LEADS_UPDATE_API_URL || LEADS_API_URL;
+  const apiUrl = LEADS_API_URL; // User requested same endpoint as extract-jobs
+  const method = "POST";
 
-  if (!apiUrl) {
+  if (job && (job.skipped || job.skipReason)) {
     if (!_updateLeadSkippedLogged) {
-      _updateLeadSkippedLogged = true;
       console.log(
-        "[updateLeadApplied] No API URL configured; skipping applied status update."
+        "[updateLeadApplied] Skipping API updates for jobs marked as skipped."
       );
+      _updateLeadSkippedLogged = true;
     }
+    console.log(
+      `[updateLeadApplied] Skipped: ${job.jobTitle || "Unknown"} (${job.skipReason || "marked skipped"})`
+    );
     return false;
   }
 
+  console.log(`[updateLeadApplied] Sending update to ${apiUrl} for ${job.jobTitle}`);
+
+  const payload = {
+    ...job, // Send full job details to ensure upsert works if record missing
+    jobUrl: job.jobUrl || "",
+    applied: applied === true,
+    appliedDate: applied === true ? new Date().toISOString() : null,
+    updatedAt: new Date().toISOString()
+  };
+
   try {
-    const headers = { "Content-Type": "application/json" };
-    if (LEADS_API_KEY) {
-      if (LEADS_API_AUTH === "bearer")
-        headers["Authorization"] = `Bearer ${LEADS_API_KEY}`;
-      else headers["X-API-Key"] = LEADS_API_KEY;
-    }
-
-    // Payload with only jobUrl
-    const payload = {
-      jobUrl: job.jobUrl || "",
+    const headers = {
+      "Content-Type": "application/json",
     };
-
-    const body = JSON.stringify(payload);
-
-    // Use PATCH for update URL, POST for main API URL
-    const method = LEADS_UPDATE_API_URL ? "PATCH" : "POST";
-
-    console.log(`[updateLeadApplied] Sending ${method} to ${apiUrl.substring(0, 50)}...`);
-    console.log(`  Payload: jobUrl=${payload.jobUrl}`);
+    if (LEADS_API_KEY) {
+      if (LEADS_API_AUTH === "bearer") {
+        headers["Authorization"] = `Bearer ${LEADS_API_KEY}`;
+      } else {
+        headers["X-API-Key"] = LEADS_API_KEY;
+      }
+    }
 
     const res = await fetch(apiUrl, {
       method,
       headers,
-      body,
+      body: JSON.stringify(payload),
     });
 
     let responseBody = "";
@@ -2569,6 +2969,13 @@ function getAnswerForQuestion(
 async function applyToJob(pg, job, cvDetails) {
   const jobTitle = job.jobTitle || "Unknown";
   const companyName = job.companyName || "Unknown";
+  const preSkip = shouldSkipJob(jobTitle, companyName);
+  if (preSkip.skip) {
+    job.skipped = true;
+    job.skipReason = preSkip.reason;
+    console.log(`[Apply] ⏭️ Skipping job: ${preSkip.reason}`);
+    return false;
+  }
   const prof = cvDetails || {};
   const notice = prof.noticePeriod || "15 Days or less";
   const cityChoice = prof.preferredCity || "Skip this question";
@@ -5928,33 +6335,64 @@ async function runAutomationCycle(opts) {
       }
       const searchUrl = page.url();
       console.log(
-        `Page ${pageNum}: extracted ${jobs.length} jobs. Phase 1: extract+POST...`
+        `Page ${pageNum}: extracted ${jobs.length} jobs. ${opts.skipExtraction ? "Skipping POST to API (Apply only mode)..." : "Phase 1: extract+POST..."}`
       );
 
       // --- Phase 1: extract emails, POST each job (applied: false) ---
-      for (const j of jobs) {
-        try {
-          j.emails = await extractEmailsFromJobDetail(page, j.jobUrl);
-          await page.waitForTimeout(1000);
-          // NOTE: sortByDate removed - it resets pagination to page 1
-          const payload = buildLeadsPayload({ ...j, applied: false });
-          const ok = await postJobToLeadsApi(payload);
-          if (ok) totalPosted++;
-          await page.waitForTimeout(10000);
-        } catch (e) {
-          if (isBrowserClosedError(e)) {
-            console.log("Browser or page was closed; stopping job loop.");
-            break;
+      if (!opts.skipExtraction) {
+        for (const j of jobs) {
+          try {
+            const preSkip = shouldSkipJob(j.jobTitle, j.companyName);
+            if (preSkip.skip) {
+              console.log(`[API] ⏭️ Skipping post: ${preSkip.reason}`);
+              j.skipped = true;
+              j.skipReason = preSkip.reason;
+              continue;
+            }
+            j.emails = await extractEmailsFromJobDetail(page, j.jobUrl);
+            await page.waitForTimeout(1000);
+            const relevant = isRelevantJob(j, cvSkills, cvDetails);
+            if (!relevant) {
+              logMatchedSkills(j, "Match");
+              console.log("[API] Skipping post: fewer than 3 skill matches");
+              j.skipped = true;
+              j.skipReason = "fewer than 3 skill matches";
+              continue;
+            }
+
+            logMatchedSkills(j, "Match");
+            // NOTE: sortByDate removed - it resets pagination to page 1
+            const payload = buildLeadsPayload({ ...j, applied: false });
+            const ok = await postJobToLeadsApi(payload);
+            if (ok) totalPosted++;
+            await page.waitForTimeout(10000);
+          } catch (e) {
+            if (isBrowserClosedError(e)) {
+              console.log("Browser or page was closed; stopping job loop.");
+              break;
+            }
+            throw e;
           }
-          throw e;
         }
       }
 
       // --- Phase 2: apply only to relevant jobs (2+ skill match, prefer Node/Gen AI/MERN/Full stack, avoid Java/.NET/PHP/Flutter) ---
       for (let i = 0; i < jobs.length; i++) {
         const j = jobs[i];
+        if (j.skipped) continue;
+
+        const preSkip = shouldSkipJob(j.jobTitle, j.companyName);
+        if (preSkip.skip) {
+          j.skipped = true;
+          j.skipReason = preSkip.reason;
+          console.log(`[Skip] ⏭️ Skipping job: ${preSkip.reason}`);
+          continue;
+        }
+
         if (!isRelevantJob(j, cvSkills, cvDetails)) {
           j.applied = false;
+          j.skipped = true;
+          j.skipReason = "fewer than 3 skill matches";
           continue;
         }
         if (j.applied) {
@@ -5967,6 +6405,85 @@ async function runAutomationCycle(opts) {
             timeout: 15000,
           });
           await page.waitForTimeout(2000);
+          // Extract JD text for skill matching
+          const jdText = await page
+            .evaluate(() => {
+              const selectors = [
+                ".job-description",
+                ".jd-desc",
+                "[class*='jobDescription']",
+                "#jobDescription",
+                "main",
+                "body",
+              ];
+              for (const sel of selectors) {
+                const el = document.querySelector(sel);
+                if (el) return el.innerText;
+              }
+              return "";
+            })
+            .catch(() => "");
+
+          const skipCheck = shouldSkipJob(j.jobTitle, j.companyName, jdText);
+          if (skipCheck.skip) {
+            j.skipped = true;
+            j.skipReason = skipCheck.reason;
+            console.log(`[Skip] ⏭️ Skipping job: ${skipCheck.reason}`);
+            // Return to search results
+            console.log(`[Post-Apply] Returning to job list page...`);
+            if (
+              !page.url().includes("/jobs") ||
+              page.url().includes("saveApply")
+            ) {
+              await page
+                .goto(searchUrl, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 25000,
+                })
+                .catch(() => { });
+            }
+            await page
+              .waitForSelector(cardSelectors, {
+                state: "visible",
+                timeout: 15000,
+              })
+              .catch(() => { });
+            continue;
+          }
+
+          // Require more than 2 skill matches before applying
+          const relevant = isRelevantJob(j, cvSkills, cvDetails, jdText);
+          if (!relevant) {
+            logMatchedSkills(j, "Match");
+            console.log("[Skip] Skipping job: fewer than 3 skill matches");
+            skippedCount++;
+            j.skipped = true;
+            j.skipReason = "fewer than 3 skill matches";
+
+            // Return to search results
+            console.log(`[Post-Apply] Returning to job list page...`);
+            if (
+              !page.url().includes("/jobs") ||
+              page.url().includes("saveApply")
+            ) {
+              await page
+                .goto(searchUrl, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 25000,
+                })
+                .catch(() => { });
+            }
+            await page
+              .waitForSelector(cardSelectors, {
+                state: "visible",
+                timeout: 15000,
+              })
+              .catch(() => { });
+            continue;
+          }
+
+          logMatchedSkills(j, "Match");
+
           const ok = await applyToJob(page, j, cvDetails);
           j.applied = !!ok;
 
@@ -5997,6 +6514,7 @@ async function runAutomationCycle(opts) {
 
       // --- Phase 3: update API with applied for each job ---
       for (const j of jobs) {
+        if (j.skipped) continue;
         try {
           await updateLeadApplied(j, !!j.applied);
           await page.waitForTimeout(500);
@@ -6038,6 +6556,7 @@ async function runAutomationCycle(opts) {
     try {
       await closeBrowser();
     } catch (_) { }
+    await clearTopJobsCache();
   }
 }
 
@@ -6090,6 +6609,12 @@ async function extractAndPostJobsOnly(opts = {}) {
   let totalPosted = 0;
   let totalExtracted = 0;
   let pageNum = 1;
+  let cvSkills = [];
+  let cvDetails = {};
+  const candidateMap = new Map();
+  const minSkillMatches = Number.isFinite(opts.minSkillMatches)
+    ? Math.max(1, opts.minSkillMatches)
+    : EXTRACT_ONLY_MIN_SKILL_MATCHES;
 
   try {
     console.log("[Extract-Only] Starting job extraction and API posting...");
@@ -6108,6 +6633,32 @@ async function extractAndPostJobsOnly(opts = {}) {
     } catch (e) {
       if (isBrowserClosedError(e)) throw e;
       console.warn("[Extract-Only] No job cards found after 15s; proceeding anyway.");
+    }
+
+    // Load CV skills for relevance filtering
+    try {
+      cvSkills = await loadCVSkills();
+      cvDetails = await loadCVDetails();
+      console.log(
+        "[Extract-Only] CV loaded: skills=" + cvSkills.length
+      );
+    } catch (e) {
+      console.warn("[Extract-Only] CV load failed, using fallbacks:", e.message);
+      cvSkills = [
+        "node",
+        "react",
+        "mern",
+        "gen ai",
+        "javascript",
+        "python",
+        "langchain",
+        "langgraph",
+        "full stack",
+        "nlp",
+        "chatbot",
+        "ai",
+      ];
+      cvDetails = { skillsWithYears: {} };
     }
 
     // Sort by date ONCE at the beginning (not in the loop)
@@ -6131,13 +6682,37 @@ async function extractAndPostJobsOnly(opts = {}) {
       totalExtracted += jobs.length;
       console.log(`[Extract-Only] Page ${pageNum}: extracted ${jobs.length} jobs. Posting to API...`);
 
-      // POST each job to API (without navigating to job detail pages)
+      // POST each job to API (filtered by skill match)
       for (let i = 0; i < jobs.length; i++) {
         const j = jobs[i];
         try {
           console.log(`[Extract-Only] Posting job ${i + 1}/${jobs.length}: ${j.jobTitle} @ ${j.companyName}`);
 
-          const payload = buildLeadsPayload({ ...j, emails: [], applied: false });
+          const preSkip = shouldSkipJob(j.jobTitle, j.companyName);
+          if (preSkip.skip) {
+            console.log(`[Extract-Only] ⏭️ Skipping post: ${preSkip.reason}`);
+            continue;
+          }
+
+          const relevant = isRelevantJob(j, cvSkills, cvDetails, "", minSkillMatches);
+          if (!relevant) {
+            logMatchedSkills(j, "Match");
+            console.log(
+              `[Extract-Only] Skipping post: fewer than ${minSkillMatches} skill matches`
+            );
+            continue;
+          }
+
+          logMatchedSkills(j, "Match");
+          const matchCount = Array.isArray(j.matchedSkills) ? j.matchedSkills.length : 0;
+          const key = j.jobUrl || `${j.jobTitle || ""}-${j.companyName || ""}-${j.city || ""}`;
+          if (key) {
+            const existing = candidateMap.get(key);
+            if (!existing || matchCount > (existing.matchCount || 0)) {
+              candidateMap.set(key, { ...j, matchCount, matchedSkills: j.matchedSkills || [] });
+            }
+          }
+          const payload = buildLeadsPayload({ ...j, emails: null, applied: false });
           const ok = await postJobToLeadsApi(payload);
           if (ok) totalPosted++;
 
@@ -6236,13 +6811,60 @@ async function extractAndPostJobsOnly(opts = {}) {
       pageNum = nextPageNum;
     }
 
+    const candidates = Array.from(candidateMap.values());
+    const limit = getTopJobsLimit();
+    const topJobs = selectTopJobsBySkillMatch(candidates, limit);
     console.log(`[Extract-Only] Complete. Extracted ${totalExtracted} jobs from ${pageNum} pages, posted ${totalPosted} to API.`);
+    console.log(`[Extract-Only] Top jobs selected for apply: ${topJobs.length} (limit ${limit})`);
+
+    await saveTopJobsCache({
+      createdAt: new Date().toISOString(),
+      limit,
+      extracted: totalExtracted,
+      posted: totalPosted,
+      totalCandidates: candidates.length,
+      jobs: topJobs,
+    });
+
+    let applySummary = null;
+    if (topJobs.length > 0) {
+      console.log(`[Extract-Only] Starting apply for top ${topJobs.length} jobs...`);
+      applySummary = await applyToSelectedJobs(topJobs, cvSkills, cvDetails);
+
+      // Synch status back to API
+      console.log(`[Extract-Only] Updating API status for applied jobs...`);
+      for (const j of topJobs) {
+        if (j.applied) {
+          try {
+            await updateLeadApplied(j, true);
+            await page.waitForTimeout(500); // rate limit
+          } catch (e) {
+            console.error(`[Extract-Only] Failed to update applied status for ${j.jobTitle}:`, e.message);
+          }
+        }
+      }
+
+      await saveTopJobsCache({
+        createdAt: new Date().toISOString(),
+        limit,
+        extracted: totalExtracted,
+        posted: totalPosted,
+        totalCandidates: candidates.length,
+        applySummary,
+        jobs: topJobs,
+      });
+    } else {
+      console.log(`[Extract-Only] No top jobs found to apply.`);
+    }
+
     return {
       success: true,
       message: `Extracted ${totalExtracted} jobs, posted ${totalPosted} to API`,
       extracted: totalExtracted,
       posted: totalPosted,
       pages: pageNum,
+      topJobs: topJobs.length,
+      applySummary,
     };
   } catch (error) {
     if (isBrowserClosedError(error)) {
@@ -6256,6 +6878,7 @@ async function extractAndPostJobsOnly(opts = {}) {
     try {
       await closeBrowser();
     } catch (_) { }
+    await clearTopJobsCache();
   }
 }
 
@@ -6332,10 +6955,22 @@ function stopNaukriAutomation() {
 
 // Close browser
 async function closeBrowser() {
-  if (browser) {
-    await browser.close();
+  try {
+    if (browserMode === "cdp") {
+      try {
+        if (page) await page.close({ runBeforeUnload: false });
+      } catch (_) { }
+      // Do not close the user's Chrome when attached over CDP
+    } else if (context) {
+      await context.close();
+    } else if (browser) {
+      await browser.close();
+    }
+  } finally {
     browser = null;
+    context = null;
     page = null;
+    browserMode = null;
   }
 }
 
@@ -6558,6 +7193,37 @@ async function applyToAllJobs(opts) {
             continue;
           }
 
+          // Require more than 2 skill matches before applying (JD included)
+          const relevant = isRelevantJob(j, cvSkills, cvDetails, jdText);
+          if (!relevant) {
+            logMatchedSkills(j, "Match");
+            console.log("[Skip] Skipping job: fewer than 3 skill matches");
+            skippedCount++;
+
+            // Return to search results
+            console.log(`[Post-Apply] Returning to job list page...`);
+            if (
+              !page.url().includes("/jobs") ||
+              page.url().includes("saveApply")
+            ) {
+              await page
+                .goto(searchUrl, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 25000,
+                })
+                .catch(() => { });
+            }
+            await page
+              .waitForSelector(cardSelectors, {
+                state: "visible",
+                timeout: 15000,
+              })
+              .catch(() => { });
+            continue;
+          }
+
+          logMatchedSkills(j, "Match");
+
           const ok = await applyToJob(page, j, cvDetails);
 
           console.log(``);
@@ -6667,6 +7333,112 @@ async function applyToAllJobs(opts) {
   }
 }
 
+// Apply to a pre-selected list of jobs (highest skill matches)
+async function applyToSelectedJobs(selectedJobs, cvSkills, cvDetails) {
+  let appliedCount = 0;
+  let skippedCount = 0;
+  let errorCount = 0;
+
+  if (!Array.isArray(selectedJobs) || selectedJobs.length === 0) {
+    return { applied: 0, skipped: 0, errors: 0, message: "No jobs to apply." };
+  }
+
+  try {
+    if (!browser || !page) await initializeBrowser();
+
+    for (let i = 0; i < selectedJobs.length; i++) {
+      const j = selectedJobs[i];
+      console.log(``);
+      console.log(`[Top-Apply] Job ${i + 1}/${selectedJobs.length}: ${j.jobTitle || "Unknown"} @ ${j.companyName || "Unknown"}`);
+
+      const preSkip = shouldSkipJob(j.jobTitle, j.companyName);
+      if (preSkip.skip) {
+        console.log(`[Top-Apply] ⏭️ Skipping: ${preSkip.reason}`);
+        skippedCount++;
+        j.applied = false;
+        continue;
+      }
+
+      try {
+        console.log(`[Top-Apply] Navigating to: ${j.jobUrl}`);
+        await page.goto(j.jobUrl, { waitUntil: "domcontentloaded", timeout: 25000 });
+        await page.waitForTimeout(2000);
+
+        const jdText = await page
+          .evaluate(() => {
+            const selectors = [
+              ".job-description",
+              ".jd-desc",
+              "[class*='jobDescription']",
+              "#jobDescription",
+              "main",
+              "body",
+            ];
+            for (const sel of selectors) {
+              const el = document.querySelector(sel);
+              if (el) return el.innerText;
+            }
+            return "";
+          })
+          .catch(() => "");
+
+        const skipCheck = shouldSkipJob(j.jobTitle, j.companyName, jdText);
+        if (skipCheck.skip) {
+          console.log(`[Top-Apply] ⏭️ Skipping: ${skipCheck.reason}`);
+          skippedCount++;
+          j.applied = false;
+          continue;
+        }
+
+        const relevant = isRelevantJob(j, cvSkills, cvDetails, jdText);
+        if (!relevant) {
+          logMatchedSkills(j, "Match");
+          console.log("[Top-Apply] Skipping job: fewer than 3 skill matches");
+          skippedCount++;
+          j.applied = false;
+          continue;
+        }
+
+        logMatchedSkills(j, "Match");
+        const ok = await applyToJob(page, j, cvDetails);
+        j.applied = !!ok;
+
+        if (ok) {
+          appliedCount++;
+          console.log(`[Top-Apply] ✅ Applied successfully`);
+        } else {
+          skippedCount++;
+          console.log(`[Top-Apply] ❌ Application failed or skipped`);
+        }
+
+        await page.waitForTimeout(2000);
+      } catch (e) {
+        if (isBrowserClosedError(e)) {
+          console.log("[Top-Apply] Browser or page closed; stopping.");
+          break;
+        }
+        errorCount++;
+        console.error(`[Top-Apply] Error: ${e.message}`);
+      }
+    }
+
+    console.log(
+      `[Top-Apply] Done. Applied: ${appliedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`
+    );
+    return {
+      applied: appliedCount,
+      skipped: skippedCount,
+      errors: errorCount,
+      message: `Applied ${appliedCount}, skipped ${skippedCount}, errors ${errorCount}`,
+    };
+  } catch (e) {
+    if (isBrowserClosedError(e)) {
+      return { applied: appliedCount, skipped: skippedCount, errors: errorCount, message: "Browser closed" };
+    }
+    return { applied: appliedCount, skipped: skippedCount, errors: errorCount, message: e.message };
+  }
+}
+
 module.exports = {
   startNaukriAutomation,
   stopNaukriAutomation,
@@ -6676,3 +7448,4 @@ module.exports = {
   closeBrowser,
   extractAndPostJobsOnly,
 };
+

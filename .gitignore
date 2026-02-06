@@ -3,3 +3,7 @@ node_modules/
 linkedin_session/
 *.log
 .DS_Store
+.chrome-naukri/
+auth.json
+browser_session/
+Infinite Apply AI - Bot/config.json

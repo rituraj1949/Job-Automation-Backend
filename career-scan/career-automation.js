@@ -12,6 +12,35 @@ const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
 let isRunning = false;
 
+async function handleGoogleConsent(page) {
+    try {
+        const url = page.url() || "";
+        if (!url.includes('consent.google.com')) {
+            return;
+        }
+
+        const candidates = [
+            'button:has-text("I agree")',
+            'button:has-text("Accept all")',
+            'button:has-text("Accept")',
+            'button:has-text("Agree")',
+            '#introAgreeButton',
+            'form[action*="consent"] button'
+        ];
+
+        for (const selector of candidates) {
+            const btn = page.locator(selector).first();
+            if (await btn.count().catch(() => 0)) {
+                await btn.click({ timeout: 5000 }).catch(() => { });
+                await page.waitForTimeout(1500);
+                return;
+            }
+        }
+    } catch (e) {
+        // Ignore consent handling errors
+    }
+}
+
 async function runCareerAutomation() {
     if (isRunning) {
         console.log("Career automation is already running.");
@@ -53,8 +82,8 @@ async function runCareerAutomation() {
         await startScreenshotStream(page, 'career-automation', 1000);
         emitAutomationStatus("Career Scanning Live");
 
-        // User Request: Use Bing search
-        const SEARCH_BASE = "https://www.bing.com/search?q=";
+        // User Request: Use Google search
+        const SEARCH_BASE = "https://www.google.com/search?q=";
 
         // Process companies one by one with 20-second intervals
         for (const company of companies) {
@@ -72,34 +101,70 @@ async function runCareerAutomation() {
             emitAutomationStatus(`Scanning: ${companyName}`);
 
             try {
-                // Step 1: Navigate to Bing and search for "company name careers"
+                // Step 1: Navigate to Google and search for "company name careers"
                 const searchQuery = encodeURIComponent(`${companyName} careers`);
                 const searchUrl = `${SEARCH_BASE}${searchQuery}`;
 
-                console.log(`Opening Bing search: ${searchQuery}`);
+                console.log(`Opening Google search: ${searchQuery}`);
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                await handleGoogleConsent(page);
 
                 // Wait a bit for search results to load
                 await page.waitForTimeout(5000);
 
                 // Step 2: Get the first search result URL
                 console.log(`Looking for first search result...`);
-                // Bing uses different selectors
-                const firstResult = await page.$('.b_algo h2 a, li.b_algo a').catch(() => null);
+                const googleLinks = await page.evaluate(() => {
+                    const normalize = (href) => {
+                        if (!href) return null;
+                        if (href.startsWith('/url?')) {
+                            try {
+                                const u = new URL('https://www.google.com' + href);
+                                return u.searchParams.get('q');
+                            } catch (e) {
+                                return null;
+                            }
+                        }
+                        return href;
+                    };
 
-                if (!firstResult) {
+                    const isValid = (href) => {
+                        if (!href) return false;
+                        if (!href.startsWith('http')) return false;
+                        const badHosts = new Set([
+                            'www.google.com',
+                            'google.com',
+                            'accounts.google.com',
+                            'policies.google.com',
+                            'support.google.com',
+                            'consent.google.com'
+                        ]);
+                        try {
+                            const host = new URL(href).hostname;
+                            if (badHosts.has(host)) return false;
+                        } catch (e) {
+                            return false;
+                        }
+                        if (href.includes('/search?')) return false;
+                        if (href.includes('webcache.googleusercontent.com')) return false;
+                        return true;
+                    };
+
+                    const anchors = Array.from(document.querySelectorAll('a'));
+                    const urls = [];
+                    for (const a of anchors) {
+                        const href = normalize(a.getAttribute('href'));
+                        if (isValid(href)) {
+                            urls.push(href);
+                        }
+                    }
+                    return urls;
+                });
+
+                const resultUrl = googleLinks[0];
+                if (!resultUrl) {
                     console.log(`No search results found for ${companyName}`);
                     // Wait 20 seconds before next company
-                    console.log("Waiting 20 seconds before next company...");
-                    await page.waitForTimeout(20000);
-                    continue;
-                }
-
-                // Extract the URL instead of clicking to avoid new tab issues
-                const resultUrl = await firstResult.getAttribute('href').catch(() => null);
-
-                if (!resultUrl) {
-                    console.log(`Could not extract URL from search result for ${companyName}`);
                     console.log("Waiting 20 seconds before next company...");
                     await page.waitForTimeout(20000);
                     continue;

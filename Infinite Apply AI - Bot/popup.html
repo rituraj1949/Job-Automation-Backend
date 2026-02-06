@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Infinite Apply LinkedIn AI Bot</title>
+  <style>
+    body {
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      width: 522px;
+      padding: 30px;
+      margin: 5;
+      background: linear-gradient(180deg, #0a0a0a, #1a1a1a);
+      color: #00ff00;
+      box-sizing: border-box;
+      border: 1px solid #00ff00;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+      margin-bottom: 10px;
+    }
+    h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #00ff00;
+      text-align: center;
+      margin: 0 0 12px;
+      text-transform: uppercase;
+      text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+      animation: flicker 1.5s infinite alternate;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #00cc00;
+      margin-bottom: 4px;
+      text-shadow: 0 0 3px rgba(0, 204, 0, 0.4);
+    }
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 8px;
+      font-size: 12px;
+      font-family: 'IBM Plex Mono', monospace;
+      color: #00ff00;
+      background-color: #1c2526;
+      border: 1px solid #00cc00;
+      border-radius: 3px;
+      box-sizing: border-box;
+      transition: border-color 0.3s, box-shadow 0.3s;
+      margin-bottom: 10px;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #00ffcc;
+      box-shadow: 0 0 8px rgba(0, 255, 204, 0.5);
+    }
+    .checkbox-group, .skills-group, .companies-group {
+      background-color: #1c2526;
+      padding: 10px;
+      border-radius: 3px;
+      border: 1px solid #00cc00;
+      box-shadow: 0 0 5px rgba(0, 204, 0, 0.3);
+    }
+    .checkbox-group p, .skills-group p, .companies-group p {
+      font-size: 12px;
+      font-weight: 500;
+      color: #00cc00;
+      margin: 0 0 6px;
+      text-shadow: 0 0 3px rgba(0, 204, 0, 0.4);
+    }
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      margin-bottom: 5px;
+      color: #00ff00;
+    }
+    .checkbox-group input[type="checkbox"] {
+      width: auto;
+      margin-right: 8px;
+      accent-color: #00ff00;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      font-size: 13px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 600;
+      color: #000;
+      background-color: #00ff00;
+      border: 1px solid #00cc00;
+      border-radius: 3px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background-color 0.3s, box-shadow 0.3s;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.7), 0 0 20px rgba(0, 255, 0, 0.5);
+      animation: neonGlow 1.5s ease-in-out infinite alternate;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #00cc00;
+      box-shadow: 0 0 15px rgba(0, 255, 0, 0.9), 0 0 25px rgba(0, 255, 0, 0.7);
+    }
+    button:active {
+      background-color: #009900;
+      box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+      animation: none;
+    }
+    @keyframes flicker {
+      0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { opacity: 1; }
+      20%, 24%, 55% { opacity: 0.7; }
+    }
+    @keyframes neonGlow {
+      0% { box-shadow: 0 0 10px rgba(0, 255, 0, 0.7), 0 0 20px rgba(0, 255, 0, 0.5); }
+      100% { box-shadow: 0 0 15px rgba(0, 255, 0, 0.9), 0 0 30px rgba(0, 255, 0, 0.7); }
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+      background-size: 100% 2px;
+      pointer-events: none;
+      opacity: 0.3;
+      animation: scanline 6s linear infinite;
+    }
+    @keyframes scanline {
+      0% { background-position: 0 0; }
+      100% { background-position: 0 100px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Infinite Apply LinkedIn AI Bot</h1>
+  <form id="userInfoForm">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" required placeholder="Enter your name">
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" required placeholder="Enter your registered email">
+    <label for="jobTitle">Job Title</label>
+    <input type="text" id="jobTitle" name="jobTitle" required>
+    <label for="sortBy">Sort By</label>
+    <select id="sortBy" name="sortBy">
+      <option value="recent">Most recent</option>
+      <option value="relevant">Most relevant</option>
+    </select>
+    <label for="datePosted">Date Posted</label>
+    <select id="datePosted" name="datePosted">
+      <option value="all">All Time</option>
+      <option value="month">Past Month</option>
+      <option value="week">Past Week</option>
+      <option value="24hours">Last 24 Hours</option>
+    </select>
+    <label for="jobType">Job Type</label>
+    <select id="jobType" name="jobType">
+      <option value="remote">Remote</option>
+      <option value="onsite">Onsite</option>
+      <option value="hybrid">Hybrid</option>
+    </select>
+    <label for="noticePeriod">Notice Period (days)</label>
+    <input type="number" id="noticePeriod" name="noticePeriod" required>
+    <label for="currentCTC">Current CTC (INR)</label>
+    <input type="number" id="currentCTC" name="currentCTC" required>
+    <label for="expectedCTC">Expected CTC (INR)</label>
+    <input type="number" id="expectedCTC" name="expectedCTC" required>
+    <label for="location">Location</label>
+    <input type="text" id="location" name="location" required>
+    <label for="experience">Experience (years)</label>
+    <input type="number" id="experience" name="experience" required>
+    <div class="checkbox-group">
+      <p>Experience Levels (select one or more)</p>
+      <label><input type="checkbox" name="experienceLevels[]" value="internship"> Internship</label>
+      <label><input type="checkbox" name="experienceLevels[]" value="entry"> Entry Level</label>
+      <label><input type="checkbox" name="experienceLevels[]" value="associate"> Associate</label>
+      <label><input type="checkbox" name="experienceLevels[]" value="midSenior"> Mid Senior Level</label>
+      <label><input type="checkbox" name="experienceLevels[]" value="director"> Director</label>
+      <label><input type="checkbox" name="experienceLevels[]" value="executive"> Executive</label>
+    </div>
+    <div class="skills-group">
+      <p>Desired Skills (please enter the first 4 letters of each skill)</p>
+      <input type="text" id="skill1" name="skills[]" placeholder="Skill 1">
+      <input type="text" id="skill2" name="skills[]" placeholder="Skill 2">
+      <input type="text" id="skill3" name="skills[]" placeholder="Skill 3">
+      <input type="text" id="skill4" name="skills[]" placeholder="Skill 4">
+      <input type="text" id="skill5" name="skills[]" placeholder="Skill 5">
+      <input type="text" id="skill6" name="skills[]" placeholder="Skill 6">
+      
+      <p>Non-Relevant Skills to Avoid (please enter the first 4 letters of each skill)</p>
+      <input type="text" id="nonRelevantSkill1" name="nonRelevantSkills[]" placeholder="Non-Relevant Skill 1">
+      <input type="text" id="nonRelevantSkill2" name="nonRelevantSkills[]" placeholder="Non-Relevant Skill 2">
+      <input type="text" id="nonRelevantSkill3" name="nonRelevantSkills[]" placeholder="Non-Relevant Skill 3">
+    </div>
+    <div class="companies-group">
+      <p>Companies to Avoid (enter company names, one per line)</p>
+      <textarea id="avoidCompanies" name="avoidCompanies" rows="3" placeholder="Enter company names, one per line"></textarea>
+    </div>
+    <button type="submit">Submit and Open LinkedIn</button>
+    <div class="tips-group">
+      <p>Tips: Filter by 'Date Posted: Last 24 Hours or Last week or All time', Apply to the freshest jobs before the competition</p>
+      <p>Choose the Right Job Type: Onsite, Remote, Hybrid</p>
+      <p>Keep Your Screen On: Ensure your device stays active to let the bot work uninterrupted.</p>
+    </div>
+  </form>
+  <script src="popup.js"></script>
+</body>
+</html>

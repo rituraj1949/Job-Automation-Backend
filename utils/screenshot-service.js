@@ -88,6 +88,10 @@ async function captureAndEmitScreenshot(page, platform) {
         if (!error.message.includes('Timeout')) {
             console.error('Error in captureAndEmitScreenshot:', error.message);
         }
+        // If target crashed or page closed, stop this stream to avoid repeated crashes
+        if (error.message.includes('Target crashed') || error.message.includes('has been closed')) {
+            stopScreenshotStream(platform);
+        }
         // Skip this screenshot and try again next interval
     } finally {
         isCapturing = false;

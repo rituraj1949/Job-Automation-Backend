@@ -2,7 +2,7 @@
 // This intercepts the page creation and adds screenshot streaming
 
 const originalModule = require('./naukri-automation');
-const { startScreenshotStream, stopScreenshotStream } = require('./screenshot-service');
+const { startScreenshotStream, stopScreenshotStream } = require('../utils/screenshot-service');
 
 // Store original functions
 const originalApplyToAllJobs = originalModule.applyToAllJobs;
