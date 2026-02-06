@@ -115,7 +115,7 @@ io.on('connection', (socket) => {
         case 'jobs_extracted':
           console.log('Jobs Received:', Array.isArray(parsedData) ? parsedData.length : parsedData);
           if (Array.isArray(parsedData) && parsedData.length > 0) {
-             console.log('First Job Example:', parsedData[0]);
+            console.log('First Job Example:', parsedData[0]);
           }
           break;
         case 'emails_found':
@@ -132,6 +132,9 @@ io.on('connection', (socket) => {
       }
       console.log('---------------------------------------------------\n');
 
+      // Broadcast to monitor
+      io.emit('agent_data_forward', payload);
+
     } catch (err) {
       console.error('Error processing agent_data:', err);
     }
@@ -140,6 +143,12 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });
+});
+
+// Serve Monitor Page
+const path = require('path');
+app.get('/monitor', (req, res) => {
+  res.sendFile(path.join(__dirname, 'monitor.html'));
 });
 
 // Export io for use in other modules
