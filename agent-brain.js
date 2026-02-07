@@ -39,6 +39,7 @@ function processDom(domHtml, socketId) {
             processedPeople: new Set(),
             processedCompanyPosts: new Set(),
             processedCompanyJobs: new Set(),
+            scrolledPages: new Set(),
             linkQueue: []
         });
     }
@@ -198,7 +199,52 @@ function processDom(domHtml, socketId) {
                 }
             } else {
                 console.log(`[${socketId}] Person ${entityName} already processed. Returning to Search.`);
-                // FALL THROUGH TO QUEUE (Was return { extracted, command: getNextNavigationCommand(socketId, state, extracted) };)
+                // FALL THROUGH TO QUEUE
+            }
+        }
+
+        // --- SCROLL FALLBACK (Human-like behavior) ---
+        // If we found NO emails and NO skills, and we haven't scrolled this specific URL yet...
+        // We should scroll down to trigger lazy loading or just "look" for more data.
+        // This applies to both Company and Profile pages if the above logic didn't trigger a click.
+
+        // Check if we extracted anything meaningful
+        const hasData = extracted.emails.length > 0 || extracted.skills.length > 0;
+
+        // We need the current URL (or a unique identifier for the page) to track scrolling.
+        // Since we don't have the URL in 'extracted' by default (it's in the DOM/Client), 
+        // we can use the 'title' or just a simple boolean flag if we assume linear processing.
+        // BUT 'processDom' is stateless per call.
+
+        // Let's use the Entity Name as a proxy or just the fact that we are in this block.
+        // Actually, we can't easily track "Page URL" without the client sending it.
+        // BUT we can use a "Current Page Scrolled" flag in the state if we assume sequential navigation.
+
+        // However, the cleanest way is:
+        // If (No Data) AND (Not Scrolled Yet) -> SCROLL.
+
+        // Implementation:
+        // We need to know if we just scrolled. 
+        // Let's assume if we are here, and we haven't extracted data, we try scrolling ONCE.
+
+        if (!hasData) {
+            // Use a composite key or just the entity name to track scrolling
+            // If we rely on entity name, it might be ambiguous. 
+            // Let's rely on the fact that if we scroll, the NEXT snapshot will have more data 
+            // OR we will eventually give up.
+
+            // We need to avoid infinite scrolling.
+            // Let's add 'scrolledPages' Set to state.
+
+            // Generative simplistic unique key for this page state
+            const pageKey = entityName + "-" + title.length;
+
+            if (!state.scrolledPages.has(pageKey)) {
+                console.log(`[${socketId}] 📉 No data found yet. Scrolling down (Human-like)...`);
+                state.scrolledPages.add(pageKey);
+                return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down' } };
+            } else {
+                console.log(`[${socketId}] 🛑 Already scrolled this page. Giving up and moving on.`);
             }
         }
     }
