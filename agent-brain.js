@@ -119,26 +119,17 @@ function processDom(domHtml, socketId) {
             entityName = $('.org-top-card__primary-content h1').text().trim() || entityName;
             console.log(`[${socketId}] Processing Company: ${entityName}`);
 
-            // Step 1: Check Posts (If not done)
+            // Step 1: Scan Posts on Main Page (If not done)
             if (!state.processedCompanyPosts.has(entityName)) {
-                if (isActivityPage) {
-                    console.log(`[${socketId}] Scanning Company Posts...`);
-                    // Extract
-                    extractFromPosts($, extracted, targetSkills);
-                    logFindings(socketId, 'Company Posts', extracted);
-
-                    state.processedCompanyPosts.add(entityName);
-                    // FALL THROUGH TO QUEUE (Was BACK)
-                } else {
-                    console.log(`[${socketId}] Navigating to Company Posts...`);
-                    // Click Posts/Activity
-                    // Try finding "Posts" tab or link
-                    return { extracted, command: { action: 'CLICK', selector: 'a:contains("Posts"), a[href*="/posts/"]', value: 'Go to Company Posts' } };
-                }
+                console.log(`[${socketId}] Scanning Company Posts (Main Page)...`);
+                extractFromPosts($, extracted, targetSkills);
+                logFindings(socketId, 'Company Posts', extracted);
+                state.processedCompanyPosts.add(entityName);
+                // Fall through to Jobs
             }
 
             // Step 2: Check Jobs (If not done)
-            else if (!state.processedCompanyJobs.has(entityName)) {
+            if (!state.processedCompanyJobs.has(entityName)) {
                 if (isJobsPage) {
                     console.log(`[${socketId}] Scanning Company Jobs...`);
                     // Extract from job cards
@@ -152,19 +143,14 @@ function processDom(domHtml, socketId) {
                         }
                     });
                     logFindings(socketId, 'Company Jobs', extracted);
-
                     state.processedCompanyJobs.add(entityName);
-                    // FALL THROUGH TO QUEUE (Was BACK)
+                    // Fall through to Queue
                 } else {
                     console.log(`[${socketId}] Navigating to Company Jobs...`);
                     return { extracted, command: { action: 'CLICK', selector: 'a:contains("Jobs"), a[href*="/jobs/"]', value: 'Go to Company Jobs' } };
                 }
-            }
-
-            // Step 3: All Done -> Leave
-            else {
+            } else {
                 console.log(`[${socketId}] Company ${entityName} fully processed.`);
-                // FALL THROUGH TO QUEUE (Was BACK)
             }
         }
 
@@ -175,33 +161,25 @@ function processDom(domHtml, socketId) {
             console.log(`[${socketId}] Processing Profile: ${entityName}`);
 
             if (!state.processedPeople.has(entityName)) {
-                if (isActivityPage) {
-                    console.log(`[${socketId}] Scanning Person's Activity...`);
-                    extractFromPosts($, extracted, targetSkills);
-                    logFindings(socketId, 'Person Activity', extracted);
+                console.log(`[${socketId}] Scanning Person's Activity & Bio (Main Page)...`);
 
-                    state.processedPeople.add(entityName);
-                    // FALL THROUGH TO QUEUE
-                } else {
-                    // Find "Show all activity"
-                    const activityBtn = $('a:contains("Show all activity"), a:contains("See all activity"), #generated-id-posts-tab, a[href*="recent-activity"]');
-                    if (activityBtn.length > 0) {
-                        console.log(`[${socketId}] clicking 'Show activity'...`);
-                        return { extracted, command: { action: 'CLICK', selector: 'a[href*="recent-activity"], a:contains("Show all activity")', value: 'Go to Activity' } };
-                    } else {
-                        // No activity? Scan bio and leave
-                        console.log(`[${socketId}] No activity button. Scanning Bio...`);
-                        const bioEmails = bodyText.match(/[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g);
-                        if (bioEmails) extracted.emails = [...new Set(bioEmails)];
-                        logFindings(socketId, 'Person Bio', extracted);
+                // 1. Scan any visible posts/activity
+                extractFromPosts($, extracted, targetSkills);
 
-                        state.processedPeople.add(entityName);
-                        // FALL THROUGH TO QUEUE
-                    }
+                // 2. Scan Bio/About info
+                const bioEmails = bodyText.match(/[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g);
+                if (bioEmails) {
+                    extracted.emails.push(...bioEmails);
+                    // Deduplicate done at end of extractFromPosts or via Set
+                    extracted.emails = [...new Set(extracted.emails)];
                 }
+
+                logFindings(socketId, 'Person Data', extracted);
+                state.processedPeople.add(entityName);
+                // Fall through to Queue
             } else {
                 console.log(`[${socketId}] Person ${entityName} already processed. Returning to Search.`);
-                // FALL THROUGH TO QUEUE
+                // Fall through to Queue
             }
         }
 
