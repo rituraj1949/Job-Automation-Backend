@@ -130,25 +130,22 @@ function processDom(domHtml, socketId) {
 
             // Step 2: Check Jobs (If not done)
             if (!state.processedCompanyJobs.has(entityName)) {
-                if (isJobsPage) {
-                    console.log(`[${socketId}] Scanning Company Jobs...`);
-                    // Extract from job cards
-                    $('.job-card-list__title, .base-card__full-link').each((i, el) => {
-                        const jobTitle = $(el).text().toLowerCase();
-                        // Simple skill check in title
-                        const foundSkills = targetSkills.filter(s => jobTitle.includes(s));
-                        if (foundSkills.length > 0) {
-                            extracted.skills.push(...foundSkills);
-                            console.log(`   💼 Relevant Job: "${$(el).text().trim()}" matches ${foundSkills.join(',')}`);
-                        }
-                    });
-                    logFindings(socketId, 'Company Jobs', extracted);
-                    state.processedCompanyJobs.add(entityName);
-                    // Fall through to Queue
-                } else {
-                    console.log(`[${socketId}] Navigating to Company Jobs...`);
-                    return { extracted, command: { action: 'CLICK', selector: 'a:contains("Jobs"), a[href*="/jobs/"]', value: 'Go to Company Jobs' } };
-                }
+                console.log(`[${socketId}] Scanning Company Jobs (Main Page)...`);
+
+                // Try to find "Recently posted jobs" or similar sections on the main page
+                // This is a "best effort" scan on the main page.
+                $('.job-card-list__title, .base-card__full-link, .org-jobs-recently-posted-jobs-module__job-title').each((i, el) => {
+                    const jobTitle = $(el).text().toLowerCase();
+                    const foundSkills = targetSkills.filter(s => jobTitle.includes(s));
+                    if (foundSkills.length > 0) {
+                        extracted.skills.push(...foundSkills);
+                        console.log(`   💼 Relevant Job: "${$(el).text().trim()}" matches ${foundSkills.join(',')}`);
+                    }
+                });
+
+                logFindings(socketId, 'Company Jobs', extracted);
+                state.processedCompanyJobs.add(entityName);
+                // Fall through to Queue
             } else {
                 console.log(`[${socketId}] Company ${entityName} fully processed.`);
             }
