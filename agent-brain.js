@@ -318,6 +318,7 @@ function processDom(domHtml, socketId) {
         console.log(`[${socketId}] 🔍 Google Search Results Page Detected.`);
 
         // --- EXTRACT LINKS (using Cheerio) ---
+        const resultLinks = [];
         $('a').each((i, el) => {
             const hasH3 = $(el).find('h3').length > 0;
             const href = $(el).attr('href');
