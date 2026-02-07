@@ -29,6 +29,15 @@ socket.on('connect', () => {
     socket.emit('agent_data', emailsPayload);
     console.log('Sent emails_found event');
 
+    // 3. Send 'agent_data' - Navigation Complete
+    const navPayload = {
+        type: 'navigation_complete',
+        data: 'https://example.com/some-page',
+        timestamp: Date.now()
+    };
+    socket.emit('agent_data', navPayload);
+    console.log('Sent navigation_complete event');
+
 });
 
 // Listen for commands from the server
