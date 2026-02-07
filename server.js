@@ -17,8 +17,50 @@ const { runLinkedInAutomation, stopLinkedInAutomation, isLinkedInAutomationRunni
 const { getStatsSummary } = require('./linkedin-connect/connection-stats');
 const { launchSession } = require('./utils/session-manager');
 const { processDom } = require('./agent-brain');
+const connectDB = require('./db/connect');
+const LinkedInCompany = require('./models/LinkedInCompany');
+
+// Connect to MongoDB
+const MONGODB_URI = 'mongodb+srv://rituraj1949:rituraj9060@cluster0.qfgod.mongodb.net/Android_Browser';
+connectDB(MONGODB_URI);
+
+// --- API ROUTES (Defined before app.listen) ---
+const setupRoutes = (app) => {
+  app.use(express.json()); // Body parser
+
+  // Save Company Data
+  app.post('/api/save-linkedin-company', async (req, res) => {
+    try {
+      const { linkedinCompanyUrl, ...data } = req.body;
+      if (!linkedinCompanyUrl) return res.status(400).json({ error: 'linkedinCompanyUrl is required' });
+
+      const updated = await LinkedInCompany.findOneAndUpdate(
+        { linkedinCompanyUrl },
+        { $set: data, $addToSet: { emails: { $each: data.emails || [] }, skillsFoundInJob: { $each: data.skillsFoundInJob || [] } } },
+        { new: true, upsert: true }
+      );
+      console.log(`💾 Saved Company: ${updated.companyName}`);
+      res.json({ success: true, data: updated });
+    } catch (err) {
+      console.error('Save Error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get Companies
+  app.get('/api/linkedin-companies', async (req, res) => {
+    try {
+      const companies = await LinkedInCompany.find().sort({ createdAt: -1 });
+      res.json(companies);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+};
+
 
 const app = express();
+setupRoutes(app);
 const server = http.createServer(app);
 
 // CORS configuration - allow both local and production frontends
@@ -95,7 +137,7 @@ io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   // Handle data from Android Agent
-  socket.on('agent_data', (payload) => {
+  socket.on('agent_data', async (payload) => {
     try {
       // payload: { type: "string", data: "json_string_or_object", timestamp: number }
       const { type, data, timestamp } = payload;
@@ -150,16 +192,46 @@ io.on('connection', (socket) => {
             }
 
             // 2. Send Command to Agent
+            // 2. Process Command
             if (analysis.command) {
-              console.log('Brain decided:', analysis.command);
-              sendAgentCommand(socket.id, analysis.command.action, analysis.command.selector, analysis.command.value);
+              const cmd = analysis.command;
 
-              // Notify Monitor
-              io.emit('agent_data_forward', {
-                type: 'server_command',
-                data: analysis.command,
-                timestamp: Date.now()
-              });
+              // SPECIAL: SAVE_DATA (Internal Server Action)
+              if (cmd.action === 'SAVE_DATA') {
+                console.log(`💾 Saving Data for: ${cmd.value.companyName}`);
+                try {
+                  const { linkedinCompanyUrl, ...saveData } = cmd.value;
+                  // We use the model directly here
+                  await LinkedInCompany.findOneAndUpdate(
+                    { linkedinCompanyUrl },
+                    { $set: saveData, $addToSet: { emails: { $each: saveData.emails || [] }, skillsFoundInJob: { $each: saveData.skillsFoundInJob || [] } } },
+                    { new: true, upsert: true }
+                  );
+                  console.log(`✅ Data Saved to MongoDB.`);
+                } catch (err) {
+                  console.error("❌ DB Save Failed:", err.message);
+                }
+
+                // After saving, trigger next action (navigation)
+                if (cmd.nextAction) {
+                  console.log('Brain decided next:', cmd.nextAction);
+                  sendAgentCommand(socket.id, cmd.nextAction.action, cmd.nextAction.selector, cmd.nextAction.value);
+                }
+              }
+              // STANDARD CLIENT COMMAND
+              else if (cmd.action !== 'TASK_COMPLETED') {
+                console.log('Brain decided:', cmd);
+                sendAgentCommand(socket.id, cmd.action, cmd.selector, cmd.value);
+
+                // Notify Monitor
+                io.emit('agent_data_forward', {
+                  type: 'server_command',
+                  data: cmd,
+                  timestamp: Date.now()
+                });
+              } else {
+                console.log(`🏁 Queue Finished for Client ${socket.id}`);
+              }
             }
           }
           break;

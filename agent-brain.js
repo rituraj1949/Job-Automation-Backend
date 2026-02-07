@@ -77,6 +77,26 @@ function processDom(domHtml, socketId) {
     let command = null;
 
     // ---------------------------------------------------------
+    // 0. AUTHWALL / BLOCK DETECTION
+    // ---------------------------------------------------------
+    // User detected "www.linkedin.com/authwall". This usually means we are redirected.
+    // We must detect this state and SKIP to the next item immediately.
+    if (domHtml.includes('authwall') || title.includes('authwall') || domHtml.includes('challenges/captcha')) {
+        console.log(`[${socketId}] 🚫 AUTHWALL / CAPTCHA DETECTED! Skipping this page.`);
+
+        // Immediate "Next in Queue" logic
+        if (state.linkQueue && state.linkQueue.length > 0) {
+            const nextLink = state.linkQueue.shift();
+            state.visitedUrls.add(nextLink);
+            console.log(`[${socketId}] ⏭️ Recovering... Navigating to next: ${nextLink}`);
+            return { extracted, command: { action: 'NAVIGATE', value: nextLink } };
+        } else {
+            console.log(`[${socketId}] 🛑 Authwall hit and Queue is empty.`);
+            return { extracted, command: { action: 'TASK_COMPLETED', value: 'Queue Finished (Blocked)' } };
+        }
+    }
+
+    // ---------------------------------------------------------
     // 1. LINKEDIN LOGIC
     // ---------------------------------------------------------
     if (extracted.isLinkedin) {
@@ -205,8 +225,49 @@ function processDom(domHtml, socketId) {
             return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down', delay: 2000 } };
         } else {
             const visiblePosts = $('.feed-shared-update-v2, .feed-shared-update-v2__description-wrapper, .occludable-update').length;
-            console.log(`[${socketId}] ✅ LinkedIn Page: Scroll Loop Complete (5/5). Found ${visiblePosts} posts. Moving to next.`);
-            // Fall through to Queue
+            console.log(`[${socketId}] ✅ LinkedIn Page: Scroll Loop Complete (5/5). Found ${visiblePosts} posts. Saving Data...`);
+
+            // --- DATA AGGREGATION FOR DB ---
+            const currentUrl = $('link[rel="canonical"]').attr('href') || $('meta[property="og:url"]').attr('content') || `https://linkedin.com/search/results/all/?keywords=${encodeURIComponent(entityName)}`;
+
+            // Count Jobs (heuristic)
+            const jobCount = $('.job-card-list__title, .base-card__full-link, .org-jobs-recently-posted-jobs-module__job-title').length;
+
+            // Construct Data Object matching Schema
+            const dbData = {
+                companyName: entityName,
+                linkedinCompanyUrl: currentUrl,
+                emails: extracted.emails,
+                skillsFoundInJob: extracted.skills,
+                JobsCount: jobCount.toString(),
+                JobsCountTime: new Date().toLocaleString(),
+                bio: $('meta[name="description"]').attr('content') || bodyText.substring(0, 500) + '...',
+                isHiring: (jobCount > 0 || extracted.skills.length > 0) ? 'yes' : 'unknown',
+                totalSkillsMatched: extracted.skills.length.toString(),
+                note: `Scrolled 5 times. Found ${visiblePosts} posts and ${jobCount} jobs.`
+            };
+
+            // Determine Next Action (Queue)
+            let nextAction = null;
+            if (state.linkQueue && state.linkQueue.length > 0) {
+                const nextLink = state.linkQueue.shift();
+                state.visitedUrls.add(nextLink);
+                console.log(`[${socketId}] ⏭️ (After Save) Navigating to: ${nextLink}`);
+                nextAction = { action: 'NAVIGATE', value: nextLink };
+            } else {
+                console.log(`[${socketId}] ✅ (After Save) Queue Empty.`);
+                nextAction = { action: 'TASK_COMPLETED', value: 'Queue Finished' };
+            }
+
+            // Return SAVE command
+            return {
+                extracted,
+                command: {
+                    action: 'SAVE_DATA',
+                    value: dbData,
+                    nextAction: nextAction
+                }
+            };
         }
     }
 
