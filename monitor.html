@@ -1,21 +1,56 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Live Monitor</title>
     <style>
-        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
-        #logs { max-width: 1200px; margin: 0 auto; }
-        .event { border-bottom: 1px solid #333; padding: 10px 0; }
-        .timestamp { color: #569cd6; }
-        .type { color: #c586c0; font-weight: bold; }
-        .data { white-space: pre-wrap; word-break: break-all; margin-top: 5px; color: #ce9178; }
-        .collapsible { cursor: pointer; color: #4ec9b0; }
-        .hidden { display: none; }
+        body {
+            font-family: monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+        }
+
+        #logs {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .event {
+            border-bottom: 1px solid #333;
+            padding: 10px 0;
+        }
+
+        .timestamp {
+            color: #569cd6;
+        }
+
+        .type {
+            color: #c586c0;
+            font-weight: bold;
+        }
+
+        .data {
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 5px;
+            color: #ce9178;
+        }
+
+        .collapsible {
+            cursor: pointer;
+            color: #4ec9b0;
+        }
+
+        .hidden {
+            display: none;
+        }
     </style>
     <script src="/socket.io/socket.io.js"></script>
 </head>
+
 <body>
     <h1>🤖 Agent Live Monitor</h1>
     <p>Waiting for data...</p>
@@ -36,18 +71,25 @@
         function addLog(type, data, timestamp = Date.now()) {
             const div = document.createElement('div');
             div.className = 'event';
-            
+
             const timeStr = new Date(timestamp).toLocaleTimeString();
-            
+
             let dataDisplay = data;
             let isLarge = false;
 
             if (typeof data === 'object') {
                 dataDisplay = JSON.stringify(data, null, 2);
             }
-            
+
             if (dataDisplay.length > 500) {
                 isLarge = true;
+            }
+
+            if (type === 'server_command') {
+                div.style.borderLeft = '4px solid #4ec9b0';
+                div.style.backgroundColor = '#1e2e2e';
+            } else if (type === 'server_extracted') {
+                div.style.borderLeft = '4px solid #ce9178';
             }
 
             let html = `
@@ -69,11 +111,12 @@
         function escapeHtml(text) {
             if (typeof text !== 'string') return text;
             return text.replace(/&/g, "&amp;")
-                       .replace(/</g, "&lt;")
-                       .replace(/>/g, "&gt;")
-                       .replace(/"/g, "&quot;")
-                       .replace(/'/g, "&#039;");
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
     </script>
 </body>
+
 </html>

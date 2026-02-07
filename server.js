@@ -16,6 +16,7 @@ const { runCareerAutomation, stopCareerAutomation, togglePauseCareerAutomation, 
 const { runLinkedInAutomation, stopLinkedInAutomation, isLinkedInAutomationRunning } = require('./linkedin-connect/linkedin-connection-automation');
 const { getStatsSummary } = require('./linkedin-connect/connection-stats');
 const { launchSession } = require('./utils/session-manager');
+const { processDom } = require('./agent-brain');
 
 const app = express();
 const server = http.createServer(app);
@@ -109,14 +110,16 @@ io.on('connection', (socket) => {
         }
       }
 
+      // ... (inside io.on connection) ...
+
       console.log(`\n--- Received '${type}' from ${socket.id} at ${new Date(timestamp).toLocaleTimeString()} ---`);
+
+      // Broadcast to monitor
+      io.emit('agent_data_forward', payload);
 
       switch (type) {
         case 'jobs_extracted':
           console.log('Jobs Received:', Array.isArray(parsedData) ? parsedData.length : parsedData);
-          if (Array.isArray(parsedData) && parsedData.length > 0) {
-            console.log('First Job Example:', parsedData[0]);
-          }
           break;
         case 'emails_found':
           console.log('Emails Found:', parsedData);
@@ -126,14 +129,39 @@ io.on('connection', (socket) => {
           break;
         case 'dom_snapshot':
           console.log('DOM Snapshot Received (length):', typeof parsedData === 'string' ? parsedData.length : JSON.stringify(parsedData).length);
+
+          // --- AGENT BRAIN PROCESSING ---
+          if (typeof parsedData === 'string') {
+            const analysis = processDom(parsedData);
+
+            // 1. Log Extracted Data
+            if (analysis.extracted) {
+              console.log('Server extracted:', analysis.extracted);
+              io.emit('agent_data_forward', {
+                type: 'server_extracted',
+                data: analysis.extracted,
+                timestamp: Date.now()
+              });
+            }
+
+            // 2. Send Command to Agent
+            if (analysis.command) {
+              console.log('Brain decided:', analysis.command);
+              sendAgentCommand(socket.id, analysis.command.action, analysis.command.selector, analysis.command.value);
+
+              // Notify Monitor
+              io.emit('agent_data_forward', {
+                type: 'server_command',
+                data: analysis.command,
+                timestamp: Date.now()
+              });
+            }
+          }
           break;
         default:
           console.log('Data:', parsedData);
       }
       console.log('---------------------------------------------------\n');
-
-      // Broadcast to monitor
-      io.emit('agent_data_forward', payload);
 
     } catch (err) {
       console.error('Error processing agent_data:', err);
