@@ -32,6 +32,8 @@ function processDom(domHtml, socketId) {
         return { error: 'Invalid DOM' };
     }
 
+    let resultLinks = []; // Function-level scope to avoid ReferenceError
+
     // Initialize state for new client
     if (!clientStates.has(socketId)) {
         clientStates.set(socketId, {
@@ -314,11 +316,8 @@ function processDom(domHtml, socketId) {
             }
         }
 
-        // --- EXTRACTION ---
-        console.log(`[${socketId}] 🔍 Google Search Results Page Detected.`);
-
         // --- EXTRACT LINKS (using Cheerio) ---
-        const resultLinks = [];
+        // resultLinks is declared at the top of processDom
         $('a').each((i, el) => {
             const hasH3 = $(el).find('h3').length > 0;
             const href = $(el).attr('href');
