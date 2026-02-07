@@ -208,6 +208,7 @@ io.on('connection', (socket) => {
               // SPECIAL: SAVE_DATA (Internal Server Action)
               if (cmd.action === 'SAVE_DATA') {
                 console.log(`💾 Saving Data for: ${cmd.value.companyName}`);
+                console.log('📦 DATA PAYLOAD:', JSON.stringify(cmd.value, null, 2));
                 try {
                   const { linkedinCompanyUrl, ...saveData } = cmd.value;
                   // We use the model directly here
