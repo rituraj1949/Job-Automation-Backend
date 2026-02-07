@@ -222,9 +222,23 @@ function processDom(domHtml, socketId) {
             }
         }
 
-        // All results visited? -> Go back to Google Home
-        console.log(`[${socketId}] All results visited. Returning to Google Home.`);
-        return { extracted, command: { action: 'NAVIGATE', value: 'https://www.google.com/' } };
+        // All results visited? 
+        // Heuristic: If we haven't scrolled yet, scroll down and try again next tick.
+        // This handles lazy loading or "More results" buttons.
+        // We can track scroll state, but for now let's just Random Scroll if > 0 results but all visited.
+
+        console.log(`[${socketId}] All ${resultLinks.length} results on this page are marked as visited.`);
+
+        // If we found very few links (e.g. < 3), maybe we are blocked or need to scroll?
+        // But if we found 10 and all 10 are visited, then we are legitimately done with this page.
+
+        if (resultLinks.length > 0) {
+            console.log(`[${socketId}] Page finished. Returning to Google Home to reset.`);
+            return { extracted, command: { action: 'NAVIGATE', value: 'https://www.google.com/' } };
+        } else {
+            // 0 results? Maybe captcha or weird page? Scroll.
+            return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down' } };
+        }
     }
 
     // ---------------------------------------------------------
