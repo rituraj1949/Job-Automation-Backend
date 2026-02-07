@@ -44,6 +44,14 @@ function processDom(domHtml, socketId) {
     }
     const state = clientStates.get(socketId);
 
+    // SAFEGUARD: Ensure linkQueue exists (for existing sessions)
+    if (!state.linkQueue) {
+        state.linkQueue = [];
+    }
+
+    // DEBUG: Monitor Queue State
+    console.log(`[${socketId}] 📊 Current State: Queue=${state.linkQueue.length}, Visited=${state.visitedUrls.size}`);
+
     const $ = cheerio.load(domHtml);
     const title = $('title').text().toLowerCase();
     const bodyText = $('body').text();
