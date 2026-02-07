@@ -326,8 +326,8 @@ function processDom(domHtml, socketId) {
             if (hasH3 && href && href.startsWith('http') && !href.includes('google.com')) {
                 let finalUrl = href;
 
-                // TRANSFORM URL if Logged In
-                if (state.isLoggedIn && (href.includes('linkedin.com/company/') || href.includes('linkedin.com/showcase/') || href.includes('linkedin.com/in/'))) {
+                // TRANSFORM URL
+                if (href.includes('linkedin.com/company/') || href.includes('linkedin.com/showcase/') || href.includes('linkedin.com/in/')) {
                     if (href.includes('/company/') || href.includes('/showcase/')) {
                         // Company/Showcase -> Posts
                         if (!href.includes('/posts/')) {
