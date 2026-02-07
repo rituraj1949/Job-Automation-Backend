@@ -193,8 +193,9 @@ function processDom(domHtml, socketId) {
 
         const currentScrolls = state.scrolledPages.get(pageKey);
 
-        if (currentScrolls < 3) {
-            console.log(`[${socketId}] 📜 LinkedIn Page: Scroll Check (${currentScrolls + 1}/3)...`);
+        if (currentScrolls < 5) {
+            const visiblePosts = $('.feed-shared-update-v2, .feed-shared-update-v2__description-wrapper, .occludable-update').length;
+            console.log(`[${socketId}] 📜 LinkedIn Page: Scroll Check (${currentScrolls + 1}/5). Visible Posts: ${visiblePosts}...`);
 
             // Increment count
             state.scrolledPages.set(pageKey, currentScrolls + 1);
@@ -203,7 +204,8 @@ function processDom(domHtml, socketId) {
             // The Client is responsible for the "2 sec gap" and sending the next snapshot.
             return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down', delay: 2000 } };
         } else {
-            console.log(`[${socketId}] ✅ LinkedIn Page: Scroll Loop Complete (3/3). Moving to next.`);
+            const visiblePosts = $('.feed-shared-update-v2, .feed-shared-update-v2__description-wrapper, .occludable-update').length;
+            console.log(`[${socketId}] ✅ LinkedIn Page: Scroll Loop Complete (5/5). Found ${visiblePosts} posts. Moving to next.`);
             // Fall through to Queue
         }
     }
