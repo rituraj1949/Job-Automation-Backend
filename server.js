@@ -16,7 +16,7 @@ const { runCareerAutomation, stopCareerAutomation, togglePauseCareerAutomation, 
 const { runLinkedInAutomation, stopLinkedInAutomation, isLinkedInAutomationRunning } = require('./linkedin-connect/linkedin-connection-automation');
 const { getStatsSummary } = require('./linkedin-connect/connection-stats');
 const { launchSession } = require('./utils/session-manager');
-const { processDom } = require('./agent-brain');
+const { processDom, updateClientState } = require('./agent-brain');
 const connectDB = require('./db/connect');
 const LinkedInCompany = require('./models/LinkedInCompany');
 
@@ -177,6 +177,16 @@ io.on('connection', (socket) => {
           break;
         case 'career_links':
           console.log('Career Links:', parsedData);
+          break;
+        case 'agent_status':
+          if (parsedData.service === 'linkedin') {
+            const status = parsedData.logged_in;
+            console.log(`[STATUS] LinkedIn: ${status ? 'Active ✅' : 'Inactive ❌'}`);
+            // Updates Brain State
+            updateClientState(socket.id, 'isLoggedIn', status);
+          } else {
+            console.log(`[STATUS] ${parsedData.service}: ${parsedData.logged_in}`);
+          }
           break;
         case 'navigation_complete':
           console.log(`✅ Client confirmed navigation to: ${parsedData}`);

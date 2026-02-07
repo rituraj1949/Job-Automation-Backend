@@ -317,25 +317,40 @@ function processDom(domHtml, socketId) {
         // --- EXTRACTION ---
         console.log(`[${socketId}] 🔍 Google Search Results Page Detected.`);
 
-        const resultLinks = [];
+        // --- EXTRACT LINKS (using Cheerio) ---
         $('a').each((i, el) => {
             const hasH3 = $(el).find('h3').length > 0;
             const href = $(el).attr('href');
+
+            // Only process valid links from search results (usually have h3 title)
             if (hasH3 && href && href.startsWith('http') && !href.includes('google.com')) {
-                resultLinks.push({ href: href, title: $(el).text() });
+                let finalUrl = href;
+
+                // TRANSFORM URL if Logged In
+                if (state.isLoggedIn && (href.includes('linkedin.com/company/') || href.includes('linkedin.com/showcase/') || href.includes('linkedin.com/in/'))) {
+                    if (href.includes('/company/') || href.includes('/showcase/')) {
+                        // Company/Showcase -> Posts
+                        if (!href.includes('/posts/')) {
+                            finalUrl = href.replace(/\/$/, '') + '/posts/?feedView=all';
+                            console.log(`[${socketId}] 🔄 Transformed URL: ${finalUrl}`);
+                        }
+                    } else if (href.includes('/in/')) {
+                        // Profile -> Recent Activity
+                        if (!href.includes('/recent-activity/')) {
+                            finalUrl = href.replace(/\/$/, '') + '/recent-activity/all/';
+                            console.log(`[${socketId}] 🔄 Transformed URL: ${finalUrl}`);
+                        }
+                    }
+                }
+
+                resultLinks.push({ href: finalUrl, title: $(el).text() });
             }
         });
 
         console.log(`[${socketId}] Found ${resultLinks.length} links.`);
 
         if (resultLinks.length > 0) {
-            // New Search? Reset Queue.
-            // We verify if these are actually NEW links by checking if we've visited the first one?
-            // Or just overwrite the queue because it's a fresh search page.
-
-            // Filter out links we have arguably already visited in this session? 
-            // The user wants strict linear processing.
-            // Let's Add allow to Queue.
+            // Updated Queue Logic
             state.linkQueue = resultLinks.map(l => l.href);
             console.log(`[${socketId}] 📥 Queue Populated with ${state.linkQueue.length} links.`);
 
@@ -448,4 +463,22 @@ function resetClientState(socketId) {
     clientStates.delete(socketId);
 }
 
-module.exports = { processDom, resetClientState };
+// --- NEW: Helper to update state from Server ---
+function updateClientState(socketId, key, value) {
+    if (!clientStates.has(socketId)) {
+        clientStates.set(socketId, {
+            visitedUrls: new Set(),
+            processedPeople: new Set(),
+            processedCompanyPosts: new Set(),
+            processedCompanyJobs: new Set(),
+            scrolledPages: new Map(),
+            linkQueue: [],
+            isLoggedIn: false // Default
+        });
+    }
+    const state = clientStates.get(socketId);
+    state[key] = value;
+    console.log(`[${socketId}] 🧠 State Updated: ${key} = ${value}`);
+}
+
+module.exports = { processDom, updateClientState, resetClientState };
