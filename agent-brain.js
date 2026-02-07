@@ -81,7 +81,8 @@ function processDom(domHtml, socketId) {
     // ---------------------------------------------------------
     if (extracted.isLinkedin) {
 
-        // A. POPUP HANDLING (Highest Priority)
+        // A. POPUP HANDLING (Disabled: Client handles this automatically)
+        /*
         const hasModal = $('.contextual-sign-in-modal__layout--stacked').length > 0 ||
             $('#base-contextual-sign-in-modal-modal-header').length > 0 ||
             $('.modal__main').length > 0;
@@ -100,6 +101,7 @@ function processDom(domHtml, socketId) {
                 }
             }
         }
+        */
 
         // B. DETECT PAGE TYPE
         // Inference based on DOM elements
