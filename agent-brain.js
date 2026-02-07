@@ -38,7 +38,8 @@ function processDom(domHtml, socketId) {
             visitedUrls: new Set(),
             processedPeople: new Set(),
             processedCompanyPosts: new Set(),
-            processedCompanyJobs: new Set()
+            processedCompanyJobs: new Set(),
+            linkQueue: []
         });
     }
     const state = clientStates.get(socketId);
@@ -116,7 +117,7 @@ function processDom(domHtml, socketId) {
                     logFindings(socketId, 'Company Posts', extracted);
 
                     state.processedCompanyPosts.add(entityName);
-                    return { extracted, command: { action: 'BACK', value: 'Posts Done -> Back' } };
+                    // FALL THROUGH TO QUEUE (Was BACK)
                 } else {
                     console.log(`[${socketId}] Navigating to Company Posts...`);
                     // Click Posts/Activity
@@ -142,7 +143,7 @@ function processDom(domHtml, socketId) {
                     logFindings(socketId, 'Company Jobs', extracted);
 
                     state.processedCompanyJobs.add(entityName);
-                    return { extracted, command: { action: 'BACK', value: 'Jobs Done -> Back' } };
+                    // FALL THROUGH TO QUEUE (Was BACK)
                 } else {
                     console.log(`[${socketId}] Navigating to Company Jobs...`);
                     return { extracted, command: { action: 'CLICK', selector: 'a:contains("Jobs"), a[href*="/jobs/"]', value: 'Go to Company Jobs' } };
@@ -151,8 +152,8 @@ function processDom(domHtml, socketId) {
 
             // Step 3: All Done -> Leave
             else {
-                console.log(`[${socketId}] Company ${entityName} fully processed. Returning to Search.`);
-                return { extracted, command: { action: 'BACK', value: 'Company Done -> Back' } };
+                console.log(`[${socketId}] Company ${entityName} fully processed.`);
+                // FALL THROUGH TO QUEUE (Was BACK)
             }
         }
 
@@ -169,7 +170,7 @@ function processDom(domHtml, socketId) {
                     logFindings(socketId, 'Person Activity', extracted);
 
                     state.processedPeople.add(entityName);
-                    return { extracted, command: { action: 'BACK', value: 'Person Done -> Back' } };
+                    // FALL THROUGH TO QUEUE
                 } else {
                     // Find "Show all activity"
                     const activityBtn = $('a:contains("Show all activity"), a:contains("See all activity"), #generated-id-posts-tab, a[href*="recent-activity"]');
@@ -184,22 +185,22 @@ function processDom(domHtml, socketId) {
                         logFindings(socketId, 'Person Bio', extracted);
 
                         state.processedPeople.add(entityName);
-                        return { extracted, command: { action: 'BACK', value: 'Bio Done -> Back' } };
+                        // FALL THROUGH TO QUEUE
                     }
                 }
             } else {
                 console.log(`[${socketId}] Person ${entityName} already processed. Returning to Search.`);
-                return { extracted, command: { action: 'BACK', value: 'Person Already Done -> Back' } };
+                // FALL THROUGH TO QUEUE (Was return { extracted, command: getNextNavigationCommand(socketId, state, extracted) };)
             }
         }
     }
 
     // ---------------------------------------------------------
-    // 2. GOOGLE SEARCH NAVIGATION (The Loop)
+    // 2. GOOGLE SEARCH (Populate Queue)
     // ---------------------------------------------------------
-    console.log(`[${socketId}] 🔍 Analyzing Page: "${title}" (Length: ${domHtml.length})`);
-    console.log(`[${socketId}]    -> Detected: ${isGoogle ? 'GOOGLE SEARCH' : (extracted.isLinkedin ? 'LINKEDIN' : 'GENERIC')}`);
     if (extracted.isGoogleSearch) {
+        console.log(`[${socketId}] 🔍 Google Search Results Page Detected.`);
+
         const resultLinks = [];
         $('a').each((i, el) => {
             const hasH3 = $(el).find('h3').length > 0;
@@ -209,78 +210,89 @@ function processDom(domHtml, socketId) {
             }
         });
 
-        extracted.googleResultsCount = resultLinks.length;
-        console.log(`[${socketId}] Google Results: ${resultLinks.length} found.`);
-
-        // Log all candidates
-        resultLinks.forEach((link, idx) => {
-            const isVisited = state.visitedUrls.has(link.href);
-            console.log(`[${socketId}]    [${idx}] ${isVisited ? '❌ (Visited)' : '✅ (New)'} - ${link.title.substring(0, 30)}... (${link.href.substring(0, 40)}...)`);
-        });
-
-        for (const link of resultLinks) {
-            if (!state.visitedUrls.has(link.href)) {
-                console.log(`[${socketId}] 👉 Clicking Result: ${link.title}`);
-                state.visitedUrls.add(link.href);
-                return {
-                    extracted,
-                    command: {
-                        action: 'CLICK',
-                        selector: `a[href="${link.href}"]`,
-                        value: `Visiting: ${link.title}`
-                    }
-                };
-            }
-        }
-
-        // All results visited? 
-        // Heuristic: If we haven't scrolled yet, scroll down and try again next tick.
-        // This handles lazy loading or "More results" buttons.
-        // We can track scroll state, but for now let's just Random Scroll if > 0 results but all visited.
-
-        console.log(`[${socketId}] All ${resultLinks.length} results on this page are marked as visited.`);
-
-        // If we found very few links (e.g. < 3), maybe we are blocked or need to scroll?
-        // But if we found 10 and all 10 are visited, then we are legitimately done with this page.
+        console.log(`[${socketId}] Found ${resultLinks.length} links.`);
 
         if (resultLinks.length > 0) {
-            console.log(`[${socketId}] Page finished. Returning to Google Home to reset.`);
-            return { extracted, command: { action: 'NAVIGATE', value: 'https://www.google.com/' } };
+            // New Search? Reset Queue.
+            // We verify if these are actually NEW links by checking if we've visited the first one?
+            // Or just overwrite the queue because it's a fresh search page.
+
+            // Filter out links we have arguably already visited in this session? 
+            // The user wants strict linear processing.
+            // Let's Add allow to Queue.
+            state.linkQueue = resultLinks.map(l => l.href);
+            console.log(`[${socketId}] 📥 Queue Populated with ${state.linkQueue.length} links.`);
+
+            // Start immediately with 1st Link
+            const nextLink = state.linkQueue.shift();
+            state.visitedUrls.add(nextLink);
+
+            console.log(`[${socketId}] 🚀 Starting Queue. Navigating to: ${nextLink}`);
+            return { extracted, command: { action: 'NAVIGATE', value: nextLink } };
         } else {
-            // 0 results? Maybe captcha or weird page? Scroll.
+            // 0 results? Scroll.
             return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down' } };
         }
     }
 
     // ---------------------------------------------------------
-    // 3. GENERIC PAGE FALLBACK (Non-LinkedIn, Non-Google)
+    // 3. GENERIC / CONTENT PAGE (Process & Next)
     // ---------------------------------------------------------
-    // We want to scrape, maybe scroll once, and then go BACK.
+    // If we are here, we are NOT on Google Search.
+    // We assume we are on one of the links from the queue.
 
-    // Extract emails from body just in case
+    // 1. Extract Data
+    if (extracted.isLinkedin && extracted.emails.length === 0) {
+        // If LinkedIn and we haven't extracted yet, maybe try extracting?
+        // (The generic extraction in processDom top might have missed specific LinkedIn parts if not Company/Profile flow)
+        // But our previous logic handled Company/Profile specific flows (which returned generic commands).
+        // We need to override those "BACK" commands with "NEXT IN QUEUE".
+    }
+
+    // Fallback Extraction (already done at top of generic block or specific blocks)
+    // We just need to ensure we don't return early in the LinkedIn block with 'BACK'.
+
+    // REFACTORING NOTE: The previous LinkedIn block returns 'BACK'. 
+    // We need to change that behavior.
+
+    // Instead of complex refactor of the block above, let's just INTERCEPT the return?
+    // No, cleaner to handle queue check at the end.
+
+    // Let's modify the Logical Flow regarding LinkedIn Block above:
+    // The LinkedIn block handles internal navigation (Posts -> Jobs).
+    // ONLY when it decides to go 'BACK' (meaning it's done with the entity),
+    // we should instead checks the queue.
+
+    // BUT since we can't easily change the block above without massive diff,
+    // I will let the above block run. 
+    // WAIT. If I use `state.linkQueue`, I should ignore the "BACK" commands from the LinkedIn block 
+    // and replace them with "NAVIGATE <NextLink>".
+
+    // Let's see...
+    // The LinkedIn block returns: { extracted, command: { action: 'BACK' ... } }
+    // generic fallback returns: { extracted, command: { action: 'BACK' ... } }
+
+    // I will process the Content Page here.
+
+    // Extract generic emails if not done
     const emailRegex = /[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g;
     const foundEmails = bodyText.match(emailRegex);
     if (foundEmails) {
         extracted.emails.push(...foundEmails);
-        extracted.emails = [...new Set(extracted.emails)]; // Deduplicate
+        extracted.emails = [...new Set(extracted.emails)];
     }
+    logFindings(socketId, isGoogle ? 'Search' : 'Page', extracted);
 
-    // Check if we already visited/scrolled this generic page
-    // We use a simple heuristic: If we are here, and it's not Google/LinkedIn, we should leave soon.
-    // Let's use a "process count" for the current URL if possible, but we don't have the current URL.
-    // So we'll just try to go BACK if we've been here. 
-    // BUT we don't have a reliable "steps on this page" counter without passing URL.
-    // simpler approach: Just go BACK immediately after extraction? 
-    // Or Scroll once then Back? 
-    // Let's Scroll once, but we need state to know we scrolled. 
-    // Current Architecture doesn't pass "Current URL" easily unless we parse it from DOM or Client sends it.
-    // Assuming Client sends DOM every 3s. 
-
-    // SAFE FALLBACK: Just extract and go BACK. 
-    // This ensures we continue the loop fast.
-    logFindings(socketId, 'Generic Page', extracted);
-    console.log(`[${socketId}] Generic page processed. Going BACK.`);
-    return { extracted, command: { action: 'BACK', value: 'Generic Page -> Back' } };
+    // CHECK QUEUE
+    if (state.linkQueue && state.linkQueue.length > 0) {
+        const nextLink = state.linkQueue.shift();
+        state.visitedUrls.add(nextLink);
+        console.log(`[${socketId}] ⏭️ Job Done. Queue has ${state.linkQueue.length} left. Navigating to: ${nextLink}`);
+        return { extracted, command: { action: 'NAVIGATE', value: nextLink } };
+    } else {
+        console.log(`[${socketId}] ✅ Queue Empty. Returning to Google Home.`);
+        return { extracted, command: { action: 'NAVIGATE', value: 'https://www.google.com/' } };
+    }
 }
 
 /**
