@@ -61,8 +61,6 @@ function processDom(domHtml, socketId) {
     // Target Skills to Search
     const targetSkills = ['node', 'react', 'aws', 'python', 'javascript', 'java', 'sql', 'mongo', 'docker', 'kubernetes'];
 
-    const targetSkills = ['node', 'react', 'aws', 'python', 'javascript', 'java', 'sql', 'mongo', 'docker', 'kubernetes'];
-
     console.log(`[${socketId}] 🔍 Analyzing Page: "${title}" (Length: ${domHtml.length})`);
     console.log(`[${socketId}]    -> Detected: ${isGoogle ? 'GOOGLE SEARCH' : (extracted.isLinkedin ? 'LINKEDIN' : 'GENERIC')}`);
 
