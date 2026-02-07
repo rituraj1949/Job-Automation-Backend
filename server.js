@@ -21,8 +21,8 @@ const connectDB = require('./db/connect');
 const LinkedInCompany = require('./models/LinkedInCompany');
 
 // Connect to MongoDB
-const MONGODB_URI = 'mongodb+srv://rituraj1949:rituraj9060@cluster0.qfgod.mongodb.net/Android_Browser';
-connectDB(MONGODB_URI);
+// const MONGODB_URI = 'mongodb+srv://rituraj1949:rituraj9060@cluster0.qfgod.mongodb.net/Android_Browser';
+// connectDB(MONGODB_URI);
 
 // --- API ROUTES (Defined before app.listen) ---
 const setupRoutes = (app) => {
@@ -34,6 +34,8 @@ const setupRoutes = (app) => {
       const { linkedinCompanyUrl, ...data } = req.body;
       if (!linkedinCompanyUrl) return res.status(400).json({ error: 'linkedinCompanyUrl is required' });
 
+      // TEMP: Commented out DB Save
+      /*
       const updated = await LinkedInCompany.findOneAndUpdate(
         { linkedinCompanyUrl },
         { $set: data, $addToSet: { emails: { $each: data.emails || [] }, skillsFoundInJob: { $each: data.skillsFoundInJob || [] } } },
@@ -41,17 +43,24 @@ const setupRoutes = (app) => {
       );
       console.log(`💾 Saved Company: ${updated.companyName}`);
       res.json({ success: true, data: updated });
+      */
+      console.log(`💾 [MOCK] Saved Company: ${data.companyName}`);
+      res.json({ success: true, data: { ...data, mock: true } });
+
     } catch (err) {
       console.error('Save Error:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
+  // NO_OP
+
   // Get Companies
   app.get('/api/linkedin-companies', async (req, res) => {
     try {
-      const companies = await LinkedInCompany.find().sort({ createdAt: -1 });
-      res.json(companies);
+      // const companies = await LinkedInCompany.find().sort({ createdAt: -1 });
+      // res.json(companies);
+      res.json([]);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -202,12 +211,14 @@ io.on('connection', (socket) => {
                 try {
                   const { linkedinCompanyUrl, ...saveData } = cmd.value;
                   // We use the model directly here
+                  /*
                   await LinkedInCompany.findOneAndUpdate(
                     { linkedinCompanyUrl },
                     { $set: saveData, $addToSet: { emails: { $each: saveData.emails || [] }, skillsFoundInJob: { $each: saveData.skillsFoundInJob || [] } } },
                     { new: true, upsert: true }
                   );
-                  console.log(`✅ Data Saved to MongoDB.`);
+                  */
+                  console.log(`✅ [MOCK] Data Saved to MongoDB.`);
                 } catch (err) {
                   console.error("❌ DB Save Failed:", err.message);
                 }
