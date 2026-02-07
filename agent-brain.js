@@ -79,6 +79,16 @@ function processDom(domHtml, socketId) {
             } else {
                 console.log(`[${socketId}] LinkedIn Modal found but NO close button detected.`);
             }
+        } else {
+            // No Modal? We are on the profile/page. 
+            // Assuming extraction (emails) ran at the top of this function.
+            // We can now go back to Google Search.
+            console.log(`[${socketId}] LinkedIn page processed (No Modal). Going BACK.`);
+            command = {
+                action: 'BACK',
+                value: 'Return to Google Search'
+            };
+            return { extracted, command };
         }
     }
 
