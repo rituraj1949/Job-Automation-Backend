@@ -256,7 +256,32 @@ function processDom(domHtml, socketId) {
                 nextAction = { action: 'NAVIGATE', value: nextLink };
             } else {
                 console.log(`[${socketId}] ✅ (After Save) Queue Empty.`);
-                nextAction = { action: 'TASK_COMPLETED', value: 'Queue Finished' };
+
+                // --- GOOGLE PAGE 2 LOGIC ---
+                // If we are on Page 1, go to Page 2.
+                if (!state.googlePage) state.googlePage = 1;
+
+                if (state.googlePage < 2 && state.lastGoogleSearchUrl) {
+                    state.googlePage++;
+                    // Construct Page 2 URL (offset 10)
+                    // Ensure we don't duplicate 'start' param if it exists (though usually it doesn't on page 1)
+                    let nextSearchUrl = state.lastGoogleSearchUrl;
+                    if (nextSearchUrl.includes('start=')) {
+                        nextSearchUrl = nextSearchUrl.replace(/start=\d+/, `start=${(state.googlePage - 1) * 10}`);
+                    } else {
+                        nextSearchUrl += (nextSearchUrl.includes('?') ? '&' : '?') + `start=${(state.googlePage - 1) * 10}`;
+                    }
+
+                    console.log(`[${socketId}] 🔄 Moving to Google Search Page ${state.googlePage}: ${nextSearchUrl}`);
+                    nextAction = { action: 'NAVIGATE', value: nextSearchUrl };
+                } else {
+                    // Finished Page 2 (or no search context) -> Go Home
+                    console.log(`[${socketId}] 🏁 Queue Finished (Page ${state.googlePage || 1}). Going to Google.com`);
+                    // Reset state for next run?
+                    state.googlePage = 1;
+                    state.linkQueue = [];
+                    nextAction = { action: 'NAVIGATE', value: 'https://www.google.com' };
+                }
             }
 
             // Return SAVE command
@@ -275,6 +300,21 @@ function processDom(domHtml, socketId) {
     // 2. GOOGLE SEARCH (Populate Queue)
     // ---------------------------------------------------------
     if (extracted.isGoogleSearch) {
+        // CAPTURE SEARCH URL for Pagination
+        const canonicalUrl = $('link[rel="canonical"]').attr('href');
+        if (canonicalUrl && canonicalUrl.includes('/search')) {
+            state.lastGoogleSearchUrl = canonicalUrl;
+            console.log(`[${socketId}] 📍 captured Search URL: ${state.lastGoogleSearchUrl}`);
+        } else {
+            // Fallback: Try to construct from Input value?
+            const query = $('input[name="q"]').val();
+            if (query) {
+                state.lastGoogleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+                console.log(`[${socketId}] 📍 Constructed Search URL: ${state.lastGoogleSearchUrl}`);
+            }
+        }
+
+        // --- EXTRACTION ---
         console.log(`[${socketId}] 🔍 Google Search Results Page Detected.`);
 
         const resultLinks = [];
