@@ -61,6 +61,11 @@ function processDom(domHtml, socketId) {
     // Target Skills to Search
     const targetSkills = ['node', 'react', 'aws', 'python', 'javascript', 'java', 'sql', 'mongo', 'docker', 'kubernetes'];
 
+    const targetSkills = ['node', 'react', 'aws', 'python', 'javascript', 'java', 'sql', 'mongo', 'docker', 'kubernetes'];
+
+    console.log(`[${socketId}] 🔍 Analyzing Page: "${title}" (Length: ${domHtml.length})`);
+    console.log(`[${socketId}]    -> Detected: ${isGoogle ? 'GOOGLE SEARCH' : (extracted.isLinkedin ? 'LINKEDIN' : 'GENERIC')}`);
+
     let command = null;
 
     // ---------------------------------------------------------
@@ -194,6 +199,8 @@ function processDom(domHtml, socketId) {
     // ---------------------------------------------------------
     // 2. GOOGLE SEARCH NAVIGATION (The Loop)
     // ---------------------------------------------------------
+    console.log(`[${socketId}] 🔍 Analyzing Page: "${title}" (Length: ${domHtml.length})`);
+    console.log(`[${socketId}]    -> Detected: ${isGoogle ? 'GOOGLE SEARCH' : (extracted.isLinkedin ? 'LINKEDIN' : 'GENERIC')}`);
     if (extracted.isGoogleSearch) {
         const resultLinks = [];
         $('a').each((i, el) => {
@@ -206,6 +213,12 @@ function processDom(domHtml, socketId) {
 
         extracted.googleResultsCount = resultLinks.length;
         console.log(`[${socketId}] Google Results: ${resultLinks.length} found.`);
+
+        // Log all candidates
+        resultLinks.forEach((link, idx) => {
+            const isVisited = state.visitedUrls.has(link.href);
+            console.log(`[${socketId}]    [${idx}] ${isVisited ? '❌ (Visited)' : '✅ (New)'} - ${link.title.substring(0, 30)}... (${link.href.substring(0, 40)}...)`);
+        });
 
         for (const link of resultLinks) {
             if (!state.visitedUrls.has(link.href)) {
