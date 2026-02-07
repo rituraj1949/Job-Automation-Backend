@@ -127,6 +127,11 @@ io.on('connection', (socket) => {
         case 'career_links':
           console.log('Career Links:', parsedData);
           break;
+        case 'navigation_complete':
+          console.log(`✅ Client confirmed navigation to: ${parsedData}`);
+          // Optional: You could update agent-brain state here if needed, 
+          // but for now we just log it as a synchronization signal.
+          break;
         case 'dom_snapshot':
           console.log('DOM Snapshot Received (length):', typeof parsedData === 'string' ? parsedData.length : JSON.stringify(parsedData).length);
 
