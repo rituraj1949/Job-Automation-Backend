@@ -132,7 +132,7 @@ io.on('connection', (socket) => {
 
           // --- AGENT BRAIN PROCESSING ---
           if (typeof parsedData === 'string') {
-            const analysis = processDom(parsedData);
+            const analysis = processDom(parsedData, socket.id);
 
             // 1. Log Extracted Data
             if (analysis.extracted) {
