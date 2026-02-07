@@ -219,9 +219,9 @@ function processDom(domHtml, socketId) {
             }
         }
 
-        // Next Page
-        console.log(`[${socketId}] all results visited on this page.`);
-        return { extracted, command: { action: 'CLICK', selector: '#pnnext, a:contains("Next")', value: 'Next Page' } };
+        // All results visited? -> Go back to Google Home
+        console.log(`[${socketId}] All results visited. Returning to Google Home.`);
+        return { extracted, command: { action: 'NAVIGATE', value: 'https://www.google.com/' } };
     }
 
     // Default Fallback
