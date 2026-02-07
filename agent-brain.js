@@ -28,7 +28,8 @@ function processDom(domHtml, socketId) {
         emails: [],
         links: [],
         jobCards: 0,
-        isGoogleSearch: title.includes('google search') || title.includes(' - google')
+        isGoogleSearch: title.includes('google search') || title.includes(' - google'),
+        isLinkedin: title.includes('linkedin') || domHtml.includes('linkedin.com')
     };
 
     // 1. EXTRACT EMAILS (Simple Regex)
@@ -40,7 +41,48 @@ function processDom(domHtml, socketId) {
 
     let command = null;
 
-    // 2. GOOGLE SEARCH NAVIGATION STRATEGY
+    // 2. LINKEDIN POPUP HANDLING (High Priority)
+    if (extracted.isLinkedin) {
+        // Check for the specific modal user mentioned or generic ones
+        const hasModal = $('.contextual-sign-in-modal__layout--stacked').length > 0 ||
+            $('#base-contextual-sign-in-modal-modal-header').length > 0 ||
+            $('.modal__main').length > 0;
+
+        if (hasModal) {
+            console.log(`[${socketId}] LinkedIn Modal detected! Attempting to close.`);
+            // Try common close button selectors for this modal
+            const closeSelectors = [
+                'button[aria-label="Dismiss"]',
+                'button.contextual-sign-in-modal__modal-dismiss-btn',
+                'button[data-test-modal-close-btn]',
+                '.modal__dismiss_btn',
+                'button.close-icon',
+                'button[aria-label="Close"]',
+                'svg[data-supported-dps="24x24"]' // Sometimes just an SVG icon
+            ];
+
+            let closeSelector = '';
+            for (const sel of closeSelectors) {
+                if ($(sel).length > 0) {
+                    closeSelector = sel;
+                    break;
+                }
+            }
+
+            if (closeSelector) {
+                command = {
+                    action: 'CLICK',
+                    selector: closeSelector,
+                    value: 'Close LinkedIn Modal'
+                };
+                return { extracted, command }; // Return immediately to handle popup
+            } else {
+                console.log(`[${socketId}] LinkedIn Modal found but NO close button detected.`);
+            }
+        }
+    }
+
+    // 3. GOOGLE SEARCH NAVIGATION STRATEGY
     if (extracted.isGoogleSearch) {
         // Find all results (standard Google structure .g -> .tF2Cxc -> a)
         // Or just look for h3 parent anchors as a robust fallback
@@ -67,8 +109,6 @@ function processDom(domHtml, socketId) {
                 visited.add(link.href);
 
                 // Generate Click Command
-                // We need a selector for this specific link.
-                // Best is href attribute selector
                 command = {
                     action: 'CLICK',
                     selector: `a[href="${link.href}"]`,
@@ -92,7 +132,7 @@ function processDom(domHtml, socketId) {
         }
 
     } else {
-        // 3. GENERIC PAGE STRATEGY (Not Google)
+        // 4. GENERIC PAGE STRATEGY (Not Google)
         // Extract career links
         $('a').each((i, el) => {
             const href = $(el).attr('href');
