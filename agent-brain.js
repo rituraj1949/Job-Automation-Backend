@@ -224,8 +224,35 @@ function processDom(domHtml, socketId) {
         return { extracted, command: { action: 'NAVIGATE', value: 'https://www.google.com/' } };
     }
 
-    // Default Fallback
-    return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down' } };
+    // ---------------------------------------------------------
+    // 3. GENERIC PAGE FALLBACK (Non-LinkedIn, Non-Google)
+    // ---------------------------------------------------------
+    // We want to scrape, maybe scroll once, and then go BACK.
+
+    // Extract emails from body just in case
+    const emailRegex = /[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g;
+    const foundEmails = bodyText.match(emailRegex);
+    if (foundEmails) {
+        extracted.emails.push(...foundEmails);
+        extracted.emails = [...new Set(extracted.emails)]; // Deduplicate
+    }
+
+    // Check if we already visited/scrolled this generic page
+    // We use a simple heuristic: If we are here, and it's not Google/LinkedIn, we should leave soon.
+    // Let's use a "process count" for the current URL if possible, but we don't have the current URL.
+    // So we'll just try to go BACK if we've been here. 
+    // BUT we don't have a reliable "steps on this page" counter without passing URL.
+    // simpler approach: Just go BACK immediately after extraction? 
+    // Or Scroll once then Back? 
+    // Let's Scroll once, but we need state to know we scrolled. 
+    // Current Architecture doesn't pass "Current URL" easily unless we parse it from DOM or Client sends it.
+    // Assuming Client sends DOM every 3s. 
+
+    // SAFE FALLBACK: Just extract and go BACK. 
+    // This ensures we continue the loop fast.
+    logFindings(socketId, 'Generic Page', extracted);
+    console.log(`[${socketId}] Generic page processed. Going BACK.`);
+    return { extracted, command: { action: 'BACK', value: 'Generic Page -> Back' } };
 }
 
 /**
