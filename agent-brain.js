@@ -298,8 +298,10 @@ function processDom(domHtml, socketId) {
         console.log(`[${socketId}] ⏭️ Job Done. Queue has ${state.linkQueue.length} left. Navigating to: ${nextLink}`);
         return { extracted, command: { action: 'NAVIGATE', value: nextLink } };
     } else {
-        console.log(`[${socketId}] ✅ Queue Empty. Returning to Google Home.`);
-        return { extracted, command: { action: 'NAVIGATE', value: 'https://www.google.com/' } };
+        console.log(`[${socketId}] ✅ Queue Empty. Task for this company is COMPLETE.`);
+        // Instead of just Navigating, we tell the Client "We are done".
+        // The Client should then: 1. Go to Google Home, 2. Pick Next Company, 3. Search.
+        return { extracted, command: { action: 'TASK_COMPLETED', value: 'Queue Finished' } };
     }
 }
 
