@@ -47,12 +47,15 @@ function processDom(domHtml, socketId) {
     const title = $('title').text().toLowerCase();
     const bodyText = $('body').text();
 
+    const isGoogle = title.includes('google search') || title.includes(' - google');
+
     const extracted = {
         emails: [],
         skills: [],
         links: [],
-        isGoogleSearch: title.includes('google search') || title.includes(' - google'),
-        isLinkedin: title.includes('linkedin') || domHtml.includes('linkedin.com')
+        isGoogleSearch: isGoogle,
+        // Only mark as LinkedIn if it's NOT Google, and has LinkedIn markers
+        isLinkedin: !isGoogle && (title.includes('linkedin') || domHtml.includes('linkedin.com'))
     };
 
     // Target Skills to Search
