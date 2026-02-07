@@ -1,7 +1,25 @@
 const cheerio = require('cheerio');
 
-// In-memory state: Map<socketId, { visitedUrls: Set<string>, processedProfiles: Set<string> }>
+// In-memory state: 
+// Map<socketId, { 
+//    visitedUrls: Set<string>, 
+//    processedPeople: Set<string>,
+//    processedCompanyPosts: Set<string>,
+//    processedCompanyJobs: Set<string> 
+// }>
 const clientStates = new Map();
+
+/**
+ * Custom logger for skills and emails
+ */
+function logFindings(socketId, source, extracted) {
+    if (extracted.emails.length > 0 || extracted.skills.length > 0) {
+        console.log(`\n[${socketId}] 🟢 HIT DETAILS (${source}) ------------------`);
+        if (extracted.emails.length > 0) console.log(`   📧 Emails: ${extracted.emails.join(', ')}`);
+        if (extracted.skills.length > 0) console.log(`   🛠️ Skills: ${extracted.skills.join(', ')}`);
+        console.log(`---------------------------------------------------\n`);
+    }
+}
 
 /**
  * Analyzes the DOM snapshot from Android Agent and decides next actions.
@@ -18,12 +36,12 @@ function processDom(domHtml, socketId) {
     if (!clientStates.has(socketId)) {
         clientStates.set(socketId, {
             visitedUrls: new Set(),
-            processedProfiles: new Set()
+            processedPeople: new Set(),
+            processedCompanyPosts: new Set(),
+            processedCompanyJobs: new Set()
         });
     }
     const state = clientStates.get(socketId);
-    const visited = state.visitedUrls;
-    const processedProfiles = state.processedProfiles;
 
     const $ = cheerio.load(domHtml);
     const title = $('title').text().toLowerCase();
@@ -31,18 +49,22 @@ function processDom(domHtml, socketId) {
 
     const extracted = {
         emails: [],
+        skills: [],
         links: [],
-        jobCards: 0,
         isGoogleSearch: title.includes('google search') || title.includes(' - google'),
         isLinkedin: title.includes('linkedin') || domHtml.includes('linkedin.com')
     };
 
+    // Target Skills to Search
+    const targetSkills = ['node', 'react', 'aws', 'python', 'javascript', 'java', 'sql', 'mongo', 'docker', 'kubernetes'];
+
     let command = null;
 
     // ---------------------------------------------------------
-    // 1. LINKEDIN SPECIFIC LOGIC
+    // 1. LINKEDIN LOGIC
     // ---------------------------------------------------------
     if (extracted.isLinkedin) {
+
         // A. POPUP HANDLING (Highest Priority)
         const hasModal = $('.contextual-sign-in-modal__layout--stacked').length > 0 ||
             $('#base-contextual-sign-in-modal-modal-header').length > 0 ||
@@ -63,68 +85,105 @@ function processDom(domHtml, socketId) {
             }
         }
 
-        // B. DETERMINE PAGE TYPE
-        // Check URL for /recent-activity/ or /posts/ to know if we are on the "Posts" page
-        // Since we don't have the URL in arguments, we infer from DOM cues
-        const isActivityPage = $('h1:contains("Activity")').length > 0 ||
-            $('.feed-shared-update-v2').length > 0 ||
-            title.includes('activity') || title.includes('posts');
+        // B. DETECT PAGE TYPE
+        // Inference based on DOM elements
+        const isCompanyPage = $('.org-top-card').length > 0 || title.includes('company') || $('a[href*="/company/"]').length > 10;
+        const isActivityPage = $('h1:contains("Activity")').length > 0 || $('.feed-shared-update-v2').length > 0 || title.includes('activity') || title.includes('posts');
+        const isJobsPage = title.includes('jobs') || $('.jobs-search-results-list').length > 0;
 
-        // Extract Profile Name/ID identifier (simple fallback)
-        const profileName = $('h1.top-card-layout__title').text().trim() || title.split('|')[0].trim();
+        // Name Extraction (Generic)
+        let entityName = $('h1').first().text().trim();
+        if (!entityName) entityName = title.split('|')[0].trim();
 
-        if (isActivityPage) {
-            // --- ON POSTS PAGE --- 
-            console.log(`[${socketId}] Analyzing Posts for: ${profileName}`);
+        // --- COMPANY FLOW ---
+        if (isCompanyPage || (extracted.isLinkedin && title.includes('company'))) {
+            // Refine name for company
+            entityName = $('.org-top-card__primary-content h1').text().trim() || entityName;
+            console.log(`[${socketId}] Processing Company: ${entityName}`);
 
-            // 1. Extract Emails from Posts (with keywords)
-            const posts = $('.feed-shared-update-v2, .feed-shared-update-v2__description-wrapper');
-            const keywords = ['hiring', 'join our team', 'looking for', 'openings', 'opportunity'];
+            // Step 1: Check Posts (If not done)
+            if (!state.processedCompanyPosts.has(entityName)) {
+                if (isActivityPage) {
+                    console.log(`[${socketId}] Scanning Company Posts...`);
+                    // Extract
+                    extractFromPosts($, extracted, targetSkills);
+                    logFindings(socketId, 'Company Posts', extracted);
 
-            posts.each((i, el) => {
-                const text = $(el).text();
-                const textLower = text.toLowerCase();
-                const hasKeyword = keywords.some(k => textLower.includes(k));
-
-                if (hasKeyword) {
-                    const emailRegex = /[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g;
-                    const found = text.match(emailRegex);
-                    if (found) {
-                        extracted.emails.push(...found);
-                        console.log(`[${socketId}] FOUND EMAIL in hiring post:`, found);
-                    }
+                    state.processedCompanyPosts.add(entityName);
+                    return { extracted, command: { action: 'BACK', value: 'Posts Done -> Back' } };
+                } else {
+                    console.log(`[${socketId}] Navigating to Company Posts...`);
+                    // Click Posts/Activity
+                    // Try finding "Posts" tab or link
+                    return { extracted, command: { action: 'CLICK', selector: 'a:contains("Posts"), a[href*="/posts/"]', value: 'Go to Company Posts' } };
                 }
-            });
-
-            // 2. Mark Done & Go Back
-            processedProfiles.add(profileName);
-            console.log(`[${socketId}] Done with posts for ${profileName}. Going BACK.`);
-            return { extracted, command: { action: 'BACK', value: 'Posts Scanned -> Back' } };
-
-        } else {
-            // --- ON MAIN PROFILE PAGE ---
-            if (processedProfiles.has(profileName)) {
-                console.log(`[${socketId}] Already processed ${profileName}. Going BACK.`);
-                return { extracted, command: { action: 'BACK', value: 'Already Processed -> Back' } };
             }
 
-            // Find "Show all activity" or "Posts" button
-            // Typical usage: "Show all activity" link or "Posts" tab
-            const activityBtn = $('a.profile-section-card__add-icon, a:contains("Show all activity"), a:contains("See all activity"), #generated-id-posts-tab');
+            // Step 2: Check Jobs (If not done)
+            else if (!state.processedCompanyJobs.has(entityName)) {
+                if (isJobsPage) {
+                    console.log(`[${socketId}] Scanning Company Jobs...`);
+                    // Extract from job cards
+                    $('.job-card-list__title, .base-card__full-link').each((i, el) => {
+                        const jobTitle = $(el).text().toLowerCase();
+                        // Simple skill check in title
+                        const foundSkills = targetSkills.filter(s => jobTitle.includes(s));
+                        if (foundSkills.length > 0) {
+                            extracted.skills.push(...foundSkills);
+                            console.log(`   💼 Relevant Job: "${$(el).text().trim()}" matches ${foundSkills.join(',')}`);
+                        }
+                    });
+                    logFindings(socketId, 'Company Jobs', extracted);
 
-            if (activityBtn.length > 0) {
-                console.log(`[${socketId}] Clicking 'Show all activity' for ${profileName}`);
-                return { extracted, command: { action: 'CLICK', selector: `a[href*="recent-activity"]`, value: 'Go to Posts' } };
-                // Note: Selector might need refining if not standard 'recent-activity' href
+                    state.processedCompanyJobs.add(entityName);
+                    return { extracted, command: { action: 'BACK', value: 'Jobs Done -> Back' } };
+                } else {
+                    console.log(`[${socketId}] Navigating to Company Jobs...`);
+                    return { extracted, command: { action: 'CLICK', selector: 'a:contains("Jobs"), a[href*="/jobs/"]', value: 'Go to Company Jobs' } };
+                }
+            }
+
+            // Step 3: All Done -> Leave
+            else {
+                console.log(`[${socketId}] Company ${entityName} fully processed. Returning to Search.`);
+                return { extracted, command: { action: 'BACK', value: 'Company Done -> Back' } };
+            }
+        }
+
+        // --- PERSONAL PROFILE FLOW ---
+        else {
+            // Refine name for person
+            entityName = $('.top-card-layout__title').text().trim() || entityName;
+            console.log(`[${socketId}] Processing Profile: ${entityName}`);
+
+            if (!state.processedPeople.has(entityName)) {
+                if (isActivityPage) {
+                    console.log(`[${socketId}] Scanning Person's Activity...`);
+                    extractFromPosts($, extracted, targetSkills);
+                    logFindings(socketId, 'Person Activity', extracted);
+
+                    state.processedPeople.add(entityName);
+                    return { extracted, command: { action: 'BACK', value: 'Person Done -> Back' } };
+                } else {
+                    // Find "Show all activity"
+                    const activityBtn = $('a:contains("Show all activity"), a:contains("See all activity"), #generated-id-posts-tab, a[href*="recent-activity"]');
+                    if (activityBtn.length > 0) {
+                        console.log(`[${socketId}] clicking 'Show activity'...`);
+                        return { extracted, command: { action: 'CLICK', selector: 'a[href*="recent-activity"], a:contains("Show all activity")', value: 'Go to Activity' } };
+                    } else {
+                        // No activity? Scan bio and leave
+                        console.log(`[${socketId}] No activity button. Scanning Bio...`);
+                        const bioEmails = bodyText.match(/[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g);
+                        if (bioEmails) extracted.emails = [...new Set(bioEmails)];
+                        logFindings(socketId, 'Person Bio', extracted);
+
+                        state.processedPeople.add(entityName);
+                        return { extracted, command: { action: 'BACK', value: 'Bio Done -> Back' } };
+                    }
+                }
             } else {
-                // If we can't find activity button, scan bio for emails then go back
-                const emailRegex = /[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g;
-                const bioEmails = bodyText.match(emailRegex);
-                if (bioEmails) extracted.emails = [...new Set(bioEmails)];
-
-                processedProfiles.add(profileName);
-                console.log(`[${socketId}] No activity button found for ${profileName}. Scanned bio. Going BACK.`);
-                return { extracted, command: { action: 'BACK', value: 'No Posts -> Back' } };
+                console.log(`[${socketId}] Person ${entityName} already processed. Returning to Search.`);
+                return { extracted, command: { action: 'BACK', value: 'Person Already Done -> Back' } };
             }
         }
     }
@@ -143,14 +202,12 @@ function processDom(domHtml, socketId) {
         });
 
         extracted.googleResultsCount = resultLinks.length;
-        console.log(`[${socketId}] Found ${resultLinks.length} Google results.`);
+        console.log(`[${socketId}] Google Results: ${resultLinks.length} found.`);
 
-        // Find Unvisited Link
         for (const link of resultLinks) {
-            if (!visited.has(link.href)) {
-                console.log(`[${socketId}] Clicking Result: ${link.title}`);
-                visited.add(link.href);
-
+            if (!state.visitedUrls.has(link.href)) {
+                console.log(`[${socketId}] 👉 Clicking Result: ${link.title}`);
+                state.visitedUrls.add(link.href);
                 return {
                     extracted,
                     command: {
@@ -163,25 +220,45 @@ function processDom(domHtml, socketId) {
         }
 
         // Next Page
-        console.log(`[${socketId}] All results visited. Next Page?`);
-        const nextBtn = $('#pnnext, a:contains("Next")').first();
-        if (nextBtn.length > 0) {
-            // Need robust selector for generic 'Next' text
-            return { extracted, command: { action: 'CLICK', selector: '#pnnext', value: 'Next Page' } };
-        }
+        console.log(`[${socketId}] all results visited on this page.`);
+        return { extracted, command: { action: 'CLICK', selector: '#pnnext, a:contains("Next")', value: 'Next Page' } };
     }
 
-    // ---------------------------------------------------------
-    // 3. FALLBACK / SCROLL
-    // ---------------------------------------------------------
-    if (!command) {
-        command = { action: 'SCROLL', selector: 'body', value: 'down' };
-    }
-
-    return { extracted, command };
+    // Default Fallback
+    return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down' } };
 }
 
-// Reset state
+/**
+ * Optimized logic to extract emails and skills from updates/posts
+ */
+function extractFromPosts($, extracted, skillsList) {
+    const posts = $('.feed-shared-update-v2, .feed-shared-update-v2__description-wrapper, .occludable-update');
+    const hiringKeywords = ['hiring', 'join our team', 'looking for', 'openings', 'opportunity', 'vacancy'];
+
+    posts.each((i, el) => {
+        const text = $(el).text();
+        const textLower = text.toLowerCase();
+
+        // 1. Keyword Check
+        const isHiringPost = hiringKeywords.some(k => textLower.includes(k));
+
+        if (isHiringPost) {
+            // 2. Email Extraction
+            const emailRegex = /[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/g;
+            const foundEmails = text.match(emailRegex);
+            if (foundEmails) extracted.emails.push(...foundEmails);
+
+            // 3. Skill Matching
+            const foundSkills = skillsList.filter(s => textLower.includes(s));
+            if (foundSkills.length > 0) extracted.skills.push(...foundSkills);
+        }
+    });
+
+    // Deduplicate
+    extracted.emails = [...new Set(extracted.emails)];
+    extracted.skills = [...new Set(extracted.skills)];
+}
+
 function resetClientState(socketId) {
     clientStates.delete(socketId);
 }
