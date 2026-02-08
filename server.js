@@ -20,6 +20,9 @@ const { processDom, updateClientState } = require('./agent-brain');
 const connectDB = require('./db/connect');
 const LinkedInCompany = require('./models/LinkedInCompany');
 
+// --- HYBRID FALLBACK: Command Queue ---
+const commandQueue = {}; // Stores pending commands: { "DEVICE_ID": [cmd1, cmd2] }
+
 // Connect to MongoDB
 // const MONGODB_URI = 'mongodb+srv://rituraj1949:rituraj9060@cluster0.qfgod.mongodb.net/Android_Browser';
 // connectDB(MONGODB_URI);
@@ -129,19 +132,122 @@ app.use(cors({
 app.use(express.json());
 
 // Helper function to send commands to Android Agent
-const sendAgentCommand = (socketId, action, selector = '', value = '') => {
-  if (!io.sockets.sockets.get(socketId)) {
-    console.error(`Socket ${socketId} not found`);
-    return false;
+const sendAgentCommand = (clientId, action, selector = '', value = '') => {
+  const payload = { action, selector, value };
+
+  // 1. Try to find an active socket for this client
+  let socketToUse = null;
+  const sockets = Array.from(io.sockets.sockets.values());
+
+  // A. Check if clientId IS a socketId
+  if (io.sockets.sockets.has(clientId)) {
+    socketToUse = io.sockets.sockets.get(clientId);
+  } else {
+    // B. Search for a socket that matches this deviceId/clientId
+    // (Note: This is a fallback if we haven't mapped them perfectly yet)
+    // For now, we assume the caller might pass a deviceId.
   }
-  const payload = { action, selector, value }; // e.g., { action: "CLICK", selector: "#btn", value: "" }
-  io.to(socketId).emit('command', payload);
-  console.log(`Sent command to ${socketId}:`, payload);
+
+  if (socketToUse && socketToUse.connected) {
+    socketToUse.emit('command', payload);
+    console.log(`Sent command to ${clientId} via Socket:`, payload);
+  } else {
+    // 2. Queue the command for Hybrid Fallback (HTTP Poll)
+    if (!commandQueue[clientId]) commandQueue[clientId] = [];
+    commandQueue[clientId].push(payload);
+    console.log(`⚠️ Client ${clientId} disconnected. Queued command for HTTP Poll:`, payload);
+  }
+
+  // Notify Monitor (Always broadcast)
+  io.emit('agent_data_forward', {
+    type: 'server_command',
+    data: payload,
+    clientId: clientId,
+    timestamp: Date.now()
+  });
+
   return true;
 };
 
 // Make it globally available or export it
 global.sendAgentCommand = sendAgentCommand;
+
+/**
+ * Common logic for processing agent data (from Socket or HTTP)
+ */
+async function handleAgentEvent(payload, socket = null) {
+  try {
+    const { type, data, timestamp } = payload;
+    let parsedData = data;
+
+    if (typeof data === 'string') {
+      try {
+        parsedData = JSON.parse(data);
+      } catch (e) { }
+    }
+
+    const clientId = parsedData?.deviceId || payload?.deviceId || socket?.id || 'unknown_device';
+
+    console.log(`\n--- Processing '${type}' from ${clientId} ---`);
+
+    // Broadcast to monitor
+    io.emit('agent_data_forward', payload);
+
+    switch (type) {
+      case 'jobs_extracted':
+        console.log('Jobs Received:', Array.isArray(parsedData) ? parsedData.length : parsedData);
+        break;
+      case 'emails_found':
+        console.log('Emails Found:', parsedData);
+        break;
+      case 'career_links':
+        console.log('Career Links:', parsedData);
+        break;
+      case 'agent_status':
+        if (parsedData.service === 'linkedin') {
+          const status = parsedData.logged_in;
+          console.log(`[STATUS] LinkedIn: ${status ? 'Active ✅' : 'Inactive ❌'}`);
+          updateClientState(clientId, 'isLoggedIn', status);
+        }
+        break;
+      case 'navigation_complete':
+        console.log(`✅ Client confirmed navigation to: ${parsedData}`);
+        break;
+      case 'dom_snapshot':
+        console.log('DOM Snapshot Received (length):', typeof parsedData === 'string' ? parsedData.length : JSON.stringify(parsedData).length);
+
+        if (typeof parsedData === 'string') {
+          const analysis = processDom(parsedData, clientId);
+
+          if (analysis.extracted) {
+            io.emit('agent_data_forward', {
+              type: 'server_extracted',
+              data: analysis.extracted,
+              timestamp: Date.now()
+            });
+          }
+
+          if (analysis.command) {
+            const cmd = analysis.command;
+
+            if (cmd.action === 'SAVE_DATA') {
+              console.log(`💾 [MOCK] Saving Data for: ${cmd.value.companyName}`);
+              if (cmd.nextAction) {
+                sendAgentCommand(clientId, cmd.nextAction.action, cmd.nextAction.selector, cmd.nextAction.value);
+              }
+            } else if (cmd.action !== 'TASK_COMPLETED') {
+              sendAgentCommand(clientId, cmd.action, cmd.selector, cmd.value);
+            } else {
+              console.log(`🏁 Queue Finished for Client ${clientId}`);
+            }
+          }
+        }
+        break;
+    }
+  } catch (err) {
+    console.error('Error in handleAgentEvent:', err);
+  }
+}
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -149,126 +255,7 @@ io.on('connection', (socket) => {
 
   // Handle data from Android Agent
   socket.on('agent_data', async (payload) => {
-    try {
-      // payload: { type: "string", data: "json_string_or_object", timestamp: number }
-      const { type, data, timestamp } = payload;
-      let parsedData = data;
-
-      // Ensure data is parsed if it's a string
-      if (typeof data === 'string') {
-        try {
-          parsedData = JSON.parse(data);
-        } catch (e) {
-          // Keep as string if parsing fails
-        }
-      }
-
-      // --- IDENTIFY CLIENT ---
-      // We prioritize deviceId for session persistence
-      const clientId = parsedData?.deviceId || payload?.deviceId || socket.id;
-
-      console.log(`\n--- Received '${type}' from ${clientId} (Socket: ${socket.id}) at ${new Date(timestamp).toLocaleTimeString()} ---`);
-
-      // Broadcast to monitor
-      io.emit('agent_data_forward', payload);
-
-      switch (type) {
-        case 'jobs_extracted':
-          console.log('Jobs Received:', Array.isArray(parsedData) ? parsedData.length : parsedData);
-          break;
-        case 'emails_found':
-          console.log('Emails Found:', parsedData);
-          break;
-        case 'career_links':
-          console.log('Career Links:', parsedData);
-          break;
-        case 'agent_status':
-          if (parsedData.service === 'linkedin') {
-            const status = parsedData.logged_in;
-            console.log(`[STATUS] LinkedIn: ${status ? 'Active ✅' : 'Inactive ❌'}`);
-            // Updates Brain State
-            updateClientState(clientId, 'isLoggedIn', status);
-          } else {
-            console.log(`[STATUS] ${parsedData.service}: ${parsedData.logged_in}`);
-          }
-          break;
-        case 'navigation_complete':
-          console.log(`✅ Client confirmed navigation to: ${parsedData}`);
-          // Optional: You could update agent-brain state here if needed, 
-          // but for now we just log it as a synchronization signal.
-          break;
-        case 'dom_snapshot':
-          console.log('DOM Snapshot Received (length):', typeof parsedData === 'string' ? parsedData.length : JSON.stringify(parsedData).length);
-
-          // --- AGENT BRAIN PROCESSING ---
-          if (typeof parsedData === 'string') {
-            const analysis = processDom(parsedData, clientId);
-
-            // 1. Log Extracted Data
-            if (analysis.extracted) {
-              console.log('Server extracted:', analysis.extracted);
-              io.emit('agent_data_forward', {
-                type: 'server_extracted',
-                data: analysis.extracted,
-                timestamp: Date.now()
-              });
-            }
-
-            // 2. Send Command to Agent
-            // 2. Process Command
-            if (analysis.command) {
-              const cmd = analysis.command;
-
-              // SPECIAL: SAVE_DATA (Internal Server Action)
-              if (cmd.action === 'SAVE_DATA') {
-                console.log(`💾 Saving Data for: ${cmd.value.companyName}`);
-                console.log('📦 DATA PAYLOAD:', JSON.stringify(cmd.value, null, 2));
-                try {
-                  const { linkedinCompanyUrl, ...saveData } = cmd.value;
-                  // We use the model directly here
-                  /*
-                  await LinkedInCompany.findOneAndUpdate(
-                    { linkedinCompanyUrl },
-                    { $set: saveData, $addToSet: { emails: { $each: saveData.emails || [] }, skillsFoundInJob: { $each: saveData.skillsFoundInJob || [] } } },
-                    { new: true, upsert: true }
-                  );
-                  */
-                  console.log(`✅ [MOCK] Data Saved to MongoDB.`);
-                } catch (err) {
-                  console.error("❌ DB Save Failed:", err.message);
-                }
-
-                // After saving, trigger next action (navigation)
-                if (cmd.nextAction) {
-                  console.log('Brain decided next:', cmd.nextAction);
-                  sendAgentCommand(socket.id, cmd.nextAction.action, cmd.nextAction.selector, cmd.nextAction.value);
-                }
-              }
-              // STANDARD CLIENT COMMAND
-              else if (cmd.action !== 'TASK_COMPLETED') {
-                console.log('Brain decided:', cmd);
-                sendAgentCommand(socket.id, cmd.action, cmd.selector, cmd.value);
-
-                // Notify Monitor
-                io.emit('agent_data_forward', {
-                  type: 'server_command',
-                  data: cmd,
-                  timestamp: Date.now()
-                });
-              } else {
-                console.log(`🏁 Queue Finished for Client ${socket.id}`);
-              }
-            }
-          }
-          break;
-        default:
-          console.log('Data:', parsedData);
-      }
-      console.log('---------------------------------------------------\n');
-
-    } catch (err) {
-      console.error('Error processing agent_data:', err);
-    }
+    handleAgentEvent(payload, socket);
   });
 
   socket.on('disconnect', () => {
@@ -280,6 +267,32 @@ io.on('connection', (socket) => {
 const path = require('path');
 app.get('/monitor', (req, res) => {
   res.sendFile(path.join(__dirname, 'monitor.html'));
+});
+
+// --- HYBRID FALLBACK ENDPOINTS ---
+
+// 1. Polling: Agent checks for commands via HTTP
+app.get('/agent/poll', (req, res) => {
+  const { deviceId } = req.query;
+  if (!deviceId) return res.status(400).json({ error: 'deviceId required' });
+
+  const commands = commandQueue[deviceId] || [];
+  commandQueue[deviceId] = []; // Clear after delivery
+
+  if (commands.length > 0) {
+    console.log(`[HTTP POLL] Delivered ${commands.length} commands to ${deviceId}`);
+  }
+  res.json(commands);
+});
+
+// 2. Data Fallback: Agent sends snapshots via HTTP
+app.post('/agent/data', (req, res) => {
+  const payload = req.body;
+  if (!payload || !payload.type) return res.status(400).json({ error: 'Invalid payload' });
+
+  console.log(`[HTTP POST] Received ${payload.type} from agent`);
+  handleAgentEvent(payload); // Re-use socket logic
+  res.json({ success: true });
 });
 
 // Export io for use in other modules
