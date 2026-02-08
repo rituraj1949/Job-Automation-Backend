@@ -22,6 +22,7 @@ const LinkedInCompany = require('./models/LinkedInCompany');
 
 // --- HYBRID FALLBACK: Command Queue ---
 const commandQueue = {}; // Stores pending commands: { "DEVICE_ID": [cmd1, cmd2] }
+const pendingConfirmations = {}; // Tracks commands sent but not yet confirmed by navigation: { "DEVICE_ID": cmd }
 
 // Connect to MongoDB
 // const MONGODB_URI = 'mongodb+srv://rituraj1949:rituraj9060@cluster0.qfgod.mongodb.net/Android_Browser';
@@ -154,7 +155,16 @@ const sendAgentCommand = (clientId, action, selector = '', value = '') => {
   } else {
     // 2. Queue the command for Hybrid Fallback (HTTP Poll)
     if (!commandQueue[clientId]) commandQueue[clientId] = [];
+
+    // Only queue if it's not already pending?
+    // User wants: "Ensure you only deliver commands that haven't been confirmed"
     commandQueue[clientId].push(payload);
+
+    // If it's a navigation command, track it for confirmation
+    if (action === 'NAVIGATE') {
+      pendingConfirmations[clientId] = payload;
+    }
+
     console.log(`⚠️ Client ${clientId} disconnected. Queued command for HTTP Poll:`, payload);
   }
 
@@ -211,7 +221,12 @@ async function handleAgentEvent(payload, socket = null) {
         }
         break;
       case 'navigation_complete':
-        console.log(`✅ Client confirmed navigation to: ${parsedData}`);
+        console.log(`[DATA] Nav Configured for ${clientId} -> Moving to next command.`);
+        // Mark as finished for this deviceId
+        if (pendingConfirmations[clientId]) {
+          console.log(`✅ Confirmation received for: ${pendingConfirmations[clientId].value}`);
+          delete pendingConfirmations[clientId];
+        }
         break;
       case 'dom_snapshot':
         console.log('DOM Snapshot Received (length):', typeof parsedData === 'string' ? parsedData.length : JSON.stringify(parsedData).length);
@@ -271,18 +286,40 @@ app.get('/monitor', (req, res) => {
 
 // --- HYBRID FALLBACK ENDPOINTS ---
 
-// 1. Polling: Agent checks for commands via HTTP
-app.get('/agent/poll', (req, res) => {
-  const { deviceId } = req.query;
-  if (!deviceId) return res.status(400).json({ error: 'deviceId required' });
+/**
+ * Shared logic for polling commands
+ */
+const getAgentCommands = (deviceId) => {
+  if (!deviceId) return { error: 'deviceId required', status: 400 };
 
   const commands = commandQueue[deviceId] || [];
+
+  // Only delivery if there are new commands.
+  // If no new commands AND a navigation is still pending, block additional commands.
+  if (commands.length === 0 && pendingConfirmations[deviceId]) {
+    console.log(`[HTTP POLL] ${deviceId} has an unconfirmed NAVIGATE. Waiting for confirmation.`);
+    return [];
+  }
+
   commandQueue[deviceId] = []; // Clear after delivery
 
   if (commands.length > 0) {
     console.log(`[HTTP POLL] Delivered ${commands.length} commands to ${deviceId}`);
   }
-  res.json(commands);
+  return commands;
+};
+
+// 1. Polling: Agent checks for commands via HTTP
+app.get('/agent/poll', (req, res) => {
+  const result = getAgentCommands(req.query.deviceId);
+  if (result.error) return res.status(result.status).json(result);
+  res.json(result);
+});
+
+app.get('/agent/poll/:deviceId', (req, res) => {
+  const result = getAgentCommands(req.params.deviceId);
+  if (result.error) return res.status(result.status).json(result);
+  res.json(result);
 });
 
 // 2. Data Fallback: Agent sends snapshots via HTTP
