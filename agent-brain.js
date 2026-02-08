@@ -84,16 +84,16 @@ function processDom(domHtml, clientId) {
     // User detected "www.linkedin.com/authwall". This usually means we are redirected.
     // We must detect this state and SKIP to the next item immediately.
     if (domHtml.includes('authwall') || title.includes('authwall') || domHtml.includes('challenges/captcha')) {
-        console.log(`[${socketId}] 🚫 AUTHWALL / CAPTCHA DETECTED! Skipping this page.`);
+        console.log(`[${clientId}] 🚫 AUTHWALL / CAPTCHA DETECTED! Skipping this page.`);
 
         // Immediate "Next in Queue" logic
         if (state.linkQueue && state.linkQueue.length > 0) {
             const nextLink = state.linkQueue.shift();
             state.visitedUrls.add(nextLink);
-            console.log(`[${socketId}] ⏭️ Recovering... Navigating to next: ${nextLink}`);
+            console.log(`[${clientId}] ⏭️ Recovering... Navigating to next: ${nextLink}`);
             return { extracted, command: { action: 'NAVIGATE', value: nextLink } };
         } else {
-            console.log(`[${socketId}] 🛑 Authwall hit and Queue is empty.`);
+            console.log(`[${clientId}] 🛑 Authwall hit and Queue is empty.`);
             return { extracted, command: { action: 'TASK_COMPLETED', value: 'Queue Finished (Blocked)' } };
         }
     }
@@ -110,7 +110,7 @@ function processDom(domHtml, clientId) {
             $('.modal__main').length > 0;
 
         if (hasModal) {
-            console.log(`[${socketId}] LinkedIn Modal detected! Closing...`);
+            console.log(`[${clientId}] LinkedIn Modal detected! Closing...`);
             const closeSelectors = [
                 'button[aria-label="Dismiss"]', 'button.contextual-sign-in-modal__modal-dismiss-btn',
                 'button[data-test-modal-close-btn]', '.modal__dismiss_btn',
@@ -139,20 +139,20 @@ function processDom(domHtml, clientId) {
         if (isCompanyPage || (extracted.isLinkedin && title.includes('company'))) {
             // Refine name for company
             entityName = $('.org-top-card__primary-content h1').text().trim() || entityName;
-            console.log(`[${socketId}] Processing Company: ${entityName}`);
+            console.log(`[${clientId}] Processing Company: ${entityName}`);
 
             // Step 1: Scan Posts on Main Page (If not done)
             if (!state.processedCompanyPosts.has(entityName)) {
-                console.log(`[${socketId}] Scanning Company Posts (Main Page)...`);
+                console.log(`[${clientId}] Scanning Company Posts (Main Page)...`);
                 extractFromPosts($, extracted, targetSkills);
-                logFindings(socketId, 'Company Posts', extracted);
+                logFindings(clientId, 'Company Posts', extracted);
                 state.processedCompanyPosts.add(entityName);
                 // Fall through to Jobs
             }
 
             // Step 2: Check Jobs (If not done)
             if (!state.processedCompanyJobs.has(entityName)) {
-                console.log(`[${socketId}] Scanning Company Jobs (Main Page)...`);
+                console.log(`[${clientId}] Scanning Company Jobs (Main Page)...`);
 
                 // Try to find "Recently posted jobs" or similar sections on the main page
                 // This is a "best effort" scan on the main page.
@@ -165,11 +165,11 @@ function processDom(domHtml, clientId) {
                     }
                 });
 
-                logFindings(socketId, 'Company Jobs', extracted);
+                logFindings(clientId, 'Company Jobs', extracted);
                 state.processedCompanyJobs.add(entityName);
                 // Fall through to Queue
             } else {
-                console.log(`[${socketId}] Company ${entityName} fully processed.`);
+                console.log(`[${clientId}] Company ${entityName} fully processed.`);
             }
         }
 
@@ -177,10 +177,10 @@ function processDom(domHtml, clientId) {
         else {
             // Refine name for person
             entityName = $('.top-card-layout__title').text().trim() || entityName;
-            console.log(`[${socketId}] Processing Profile: ${entityName}`);
+            console.log(`[${clientId}] Processing Profile: ${entityName}`);
 
             if (!state.processedPeople.has(entityName)) {
-                console.log(`[${socketId}] Scanning Person's Activity & Bio (Main Page)...`);
+                console.log(`[${clientId}] Scanning Person's Activity & Bio (Main Page)...`);
 
                 // 1. Scan any visible posts/activity
                 extractFromPosts($, extracted, targetSkills);
@@ -193,11 +193,11 @@ function processDom(domHtml, clientId) {
                     extracted.emails = [...new Set(extracted.emails)];
                 }
 
-                logFindings(socketId, 'Person Data', extracted);
+                logFindings(clientId, 'Person Data', extracted);
                 state.processedPeople.add(entityName);
                 // Fall through to Queue
             } else {
-                console.log(`[${socketId}] Person ${entityName} already processed. Returning to Search.`);
+                console.log(`[${clientId}] Person ${entityName} already processed. Returning to Search.`);
                 // Fall through to Queue
             }
         }
@@ -217,7 +217,7 @@ function processDom(domHtml, clientId) {
 
         if (currentScrolls < 5) {
             const visiblePosts = $('.feed-shared-update-v2, .feed-shared-update-v2__description-wrapper, .occludable-update').length;
-            console.log(`[${socketId}] 📜 LinkedIn Page: Scroll Check (${currentScrolls + 1}/5). Visible Posts: ${visiblePosts}...`);
+            console.log(`[${clientId}] 📜 LinkedIn Page: Scroll Check (${currentScrolls + 1}/5). Visible Posts: ${visiblePosts}...`);
 
             // Increment count
             state.scrolledPages.set(pageKey, currentScrolls + 1);
@@ -227,7 +227,7 @@ function processDom(domHtml, clientId) {
             return { extracted, command: { action: 'SCROLL', selector: 'body', value: 'down', delay: 2000 } };
         } else {
             const visiblePosts = $('.feed-shared-update-v2, .feed-shared-update-v2__description-wrapper, .occludable-update').length;
-            console.log(`[${socketId}] ✅ LinkedIn Page: Scroll Loop Complete (5/5). Found ${visiblePosts} posts. Saving Data...`);
+            console.log(`[${clientId}] ✅ LinkedIn Page: Scroll Loop Complete (5/5). Found ${visiblePosts} posts. Saving Data...`);
 
             // --- DATA AGGREGATION FOR DB ---
             const currentUrl = $('link[rel="canonical"]').attr('href') || $('meta[property="og:url"]').attr('content') || `https://linkedin.com/search/results/all/?keywords=${encodeURIComponent(entityName)}`;
@@ -254,10 +254,10 @@ function processDom(domHtml, clientId) {
             if (state.linkQueue && state.linkQueue.length > 0) {
                 const nextLink = state.linkQueue.shift();
                 state.visitedUrls.add(nextLink);
-                console.log(`[${socketId}] ⏭️ (After Save) Navigating to: ${nextLink}`);
+                console.log(`[${clientId}] ⏭️ (After Save) Navigating to: ${nextLink}`);
                 nextAction = { action: 'NAVIGATE', value: nextLink };
             } else {
-                console.log(`[${socketId}] ✅ (After Save) Queue Empty.`);
+                console.log(`[${clientId}] ✅ (After Save) Queue Empty.`);
 
                 // --- GOOGLE PAGE 2 LOGIC ---
                 // If we are on Page 1, go to Page 2.
@@ -274,11 +274,11 @@ function processDom(domHtml, clientId) {
                         nextSearchUrl += (nextSearchUrl.includes('?') ? '&' : '?') + `start=${(state.googlePage - 1) * 10}`;
                     }
 
-                    console.log(`[${socketId}] 🔄 Moving to Google Search Page ${state.googlePage}: ${nextSearchUrl}`);
+                    console.log(`[${clientId}] 🔄 Moving to Google Search Page ${state.googlePage}: ${nextSearchUrl}`);
                     nextAction = { action: 'NAVIGATE', value: nextSearchUrl };
                 } else {
                     // Finished Page 2 (or no search context) -> Go Home
-                    console.log(`[${socketId}] 🏁 Queue Finished (Page ${state.googlePage || 1}). Going to Google.com`);
+                    console.log(`[${clientId}] 🏁 Queue Finished (Page ${state.googlePage || 1}). Going to Google.com`);
                     // Reset state for next run?
                     state.googlePage = 1;
                     state.linkQueue = [];
@@ -306,13 +306,13 @@ function processDom(domHtml, clientId) {
         const canonicalUrl = $('link[rel="canonical"]').attr('href');
         if (canonicalUrl && canonicalUrl.includes('/search')) {
             state.lastGoogleSearchUrl = canonicalUrl;
-            console.log(`[${socketId}] 📍 captured Search URL: ${state.lastGoogleSearchUrl}`);
+            console.log(`[${clientId}] 📍 captured Search URL: ${state.lastGoogleSearchUrl}`);
         } else {
             // Fallback: Try to construct from Input value?
             const query = $('input[name="q"]').val();
             if (query) {
                 state.lastGoogleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-                console.log(`[${socketId}] 📍 Constructed Search URL: ${state.lastGoogleSearchUrl}`);
+                console.log(`[${clientId}] 📍 Constructed Search URL: ${state.lastGoogleSearchUrl}`);
             }
         }
 
@@ -332,13 +332,13 @@ function processDom(domHtml, clientId) {
                         // Company/Showcase -> Posts
                         if (!href.includes('/posts/')) {
                             finalUrl = href.replace(/\/$/, '') + '/posts/?feedView=all';
-                            console.log(`[${socketId}] 🔄 Transformed URL: ${finalUrl}`);
+                            console.log(`[${clientId}] 🔄 Transformed URL: ${finalUrl}`);
                         }
                     } else if (href.includes('/in/')) {
                         // Profile -> Recent Activity
                         if (!href.includes('/recent-activity/')) {
                             finalUrl = href.replace(/\/$/, '') + '/recent-activity/all/';
-                            console.log(`[${socketId}] 🔄 Transformed URL: ${finalUrl}`);
+                            console.log(`[${clientId}] 🔄 Transformed URL: ${finalUrl}`);
                         }
                     }
                 }
@@ -347,18 +347,18 @@ function processDom(domHtml, clientId) {
             }
         });
 
-        console.log(`[${socketId}] Found ${resultLinks.length} links.`);
+        console.log(`[${clientId}] Found ${resultLinks.length} links.`);
 
         if (resultLinks.length > 0) {
             // Updated Queue Logic
             state.linkQueue = resultLinks.map(l => l.href);
-            console.log(`[${socketId}] 📥 Queue Populated with ${state.linkQueue.length} links.`);
+            console.log(`[${clientId}] 📥 Queue Populated with ${state.linkQueue.length} links.`);
 
             // Start immediately with 1st Link
             const nextLink = state.linkQueue.shift();
             state.visitedUrls.add(nextLink);
 
-            console.log(`[${socketId}] 🚀 Starting Queue. Navigating to: ${nextLink}`);
+            console.log(`[${clientId}] 🚀 Starting Queue. Navigating to: ${nextLink}`);
             return { extracted, command: { action: 'NAVIGATE', value: nextLink } };
         } else {
             // 0 results? Scroll.
@@ -412,16 +412,16 @@ function processDom(domHtml, clientId) {
         extracted.emails.push(...foundEmails);
         extracted.emails = [...new Set(extracted.emails)];
     }
-    logFindings(socketId, isGoogle ? 'Search' : 'Page', extracted);
+    logFindings(clientId, isGoogle ? 'Search' : 'Page', extracted);
 
     // CHECK QUEUE
     if (state.linkQueue && state.linkQueue.length > 0) {
         const nextLink = state.linkQueue.shift();
         state.visitedUrls.add(nextLink);
-        console.log(`[${socketId}] ⏭️ Job Done. Queue has ${state.linkQueue.length} left. Navigating to: ${nextLink}`);
+        console.log(`[${clientId}] ⏭️ Job Done. Queue has ${state.linkQueue.length} left. Navigating to: ${nextLink}`);
         return { extracted, command: { action: 'NAVIGATE', value: nextLink } };
     } else {
-        console.log(`[${socketId}] ✅ Queue Empty. Task for this company is COMPLETE.`);
+        console.log(`[${clientId}] ✅ Queue Empty. Task for this company is COMPLETE.`);
         // Instead of just Navigating, we tell the Client "We are done".
         // The Client should then: 1. Go to Google Home, 2. Pick Next Company, 3. Search.
         return { extracted, command: { action: 'TASK_COMPLETED', value: 'Queue Finished' } };
@@ -459,8 +459,8 @@ function extractFromPosts($, extracted, skillsList) {
     extracted.skills = [...new Set(extracted.skills)];
 }
 
-function resetClientState(socketId) {
-    clientStates.delete(socketId);
+function resetClientState(clientId) {
+    clientStates.delete(clientId);
 }
 
 // --- NEW: Helper to update state from Server ---
