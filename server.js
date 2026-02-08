@@ -183,6 +183,26 @@ const sendAgentCommand = (clientId, action, selector = '', value = '') => {
 global.sendAgentCommand = sendAgentCommand;
 
 /**
+ * Helper to trigger 5 scrolls with 2 second gaps for LinkedIn
+ */
+const triggerLinkedInScroll = (clientId) => {
+  let scrollCount = 0;
+  console.log(`[SCROLL] Starting 5x scroll sequence for ${clientId}`);
+
+  const scrollInterval = setInterval(() => {
+    sendAgentCommand(clientId, 'SCROLL', 'body', 'down');
+    scrollCount++;
+
+    if (scrollCount >= 5) {
+      clearInterval(scrollInterval);
+      console.log(`[SCROLL] 5x scroll sequence completed for ${clientId}`);
+      // Finally, send one more DOM Snapshot request to process the results
+      // sendAgentCommand(clientId, 'DOM_SNAPSHOT'); // Optional if brain handles last scroll
+    }
+  }, 2000);
+};
+
+/**
  * Common logic for processing agent data (from Socket or HTTP)
  */
 async function handleAgentEvent(payload, socket = null) {
@@ -224,7 +244,14 @@ async function handleAgentEvent(payload, socket = null) {
         console.log(`[DATA] Nav Configured for ${clientId} -> Moving to next command.`);
         // Mark as finished for this deviceId
         if (pendingConfirmations[clientId]) {
-          console.log(`✅ Confirmation received for: ${pendingConfirmations[clientId].value}`);
+          const confirmedUrl = pendingConfirmations[clientId].value;
+          console.log(`✅ Confirmation received for: ${confirmedUrl}`);
+
+          // --- AUTOMATED LINKEDIN SCROLLING ---
+          if (confirmedUrl.includes('linkedin.com') && confirmedUrl.includes('posts')) {
+            triggerLinkedInScroll(clientId);
+          }
+
           delete pendingConfirmations[clientId];
         }
         break;
