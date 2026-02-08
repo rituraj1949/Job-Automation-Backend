@@ -81,8 +81,8 @@ const allowedOrigins = [
 
 const io = new Server(server, {
   allowEIO3: true, // Allow Socket.IO v2 clients (Android)
-  pingTimeout: 60000,   // Increased to 60s for heavy page loads
-  pingInterval: 25000,  // Standard interval
+  pingTimeout: 60000, // Increase timeout for heavy pages
+  pingInterval: 25000,
   cors: {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl)
@@ -163,9 +163,11 @@ io.on('connection', (socket) => {
         }
       }
 
-      // ... (inside io.on connection) ...
+      // --- IDENTIFY CLIENT ---
+      // We prioritize deviceId for session persistence
+      const clientId = parsedData?.deviceId || payload?.deviceId || socket.id;
 
-      console.log(`\n--- Received '${type}' from ${socket.id} at ${new Date(timestamp).toLocaleTimeString()} ---`);
+      console.log(`\n--- Received '${type}' from ${clientId} (Socket: ${socket.id}) at ${new Date(timestamp).toLocaleTimeString()} ---`);
 
       // Broadcast to monitor
       io.emit('agent_data_forward', payload);
@@ -185,7 +187,7 @@ io.on('connection', (socket) => {
             const status = parsedData.logged_in;
             console.log(`[STATUS] LinkedIn: ${status ? 'Active ✅' : 'Inactive ❌'}`);
             // Updates Brain State
-            updateClientState(socket.id, 'isLoggedIn', status);
+            updateClientState(clientId, 'isLoggedIn', status);
           } else {
             console.log(`[STATUS] ${parsedData.service}: ${parsedData.logged_in}`);
           }
@@ -195,12 +197,12 @@ io.on('connection', (socket) => {
           // Optional: You could update agent-brain state here if needed, 
           // but for now we just log it as a synchronization signal.
           break;
+        case 'dom_snapshot':
+          console.log('DOM Snapshot Received (length):', typeof parsedData === 'string' ? parsedData.length : JSON.stringify(parsedData).length);
+
           // --- AGENT BRAIN PROCESSING ---
           if (typeof parsedData === 'string') {
-            // Use clientId from payload if available for persistence, otherwise fallback to socket.id
-            const clientId = (payload.clientId || payload.deviceId || socket.id);
             const analysis = processDom(parsedData, clientId);
-
 
             // 1. Log Extracted Data
             if (analysis.extracted) {
