@@ -81,6 +81,8 @@ const allowedOrigins = [
 
 const io = new Server(server, {
   allowEIO3: true, // Allow Socket.IO v2 clients (Android)
+  pingTimeout: 60000,   // Increased to 60s for heavy page loads
+  pingInterval: 25000,  // Standard interval
   cors: {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl)
@@ -193,12 +195,12 @@ io.on('connection', (socket) => {
           // Optional: You could update agent-brain state here if needed, 
           // but for now we just log it as a synchronization signal.
           break;
-        case 'dom_snapshot':
-          console.log('DOM Snapshot Received (length):', typeof parsedData === 'string' ? parsedData.length : JSON.stringify(parsedData).length);
-
           // --- AGENT BRAIN PROCESSING ---
           if (typeof parsedData === 'string') {
-            const analysis = processDom(parsedData, socket.id);
+            // Use clientId from payload if available for persistence, otherwise fallback to socket.id
+            const clientId = (payload.clientId || payload.deviceId || socket.id);
+            const analysis = processDom(parsedData, clientId);
+
 
             // 1. Log Extracted Data
             if (analysis.extracted) {
